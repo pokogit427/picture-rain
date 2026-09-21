@@ -34,3 +34,26 @@ class ConnectionResponse(BaseModel):
     partner_user_id: str
     status: str
     created_at: datetime
+
+
+class RoundCreateRequest(BaseModel):
+    asset_id: str = Field(min_length=1, max_length=32)
+
+
+class RoundInputRequest(BaseModel):
+    asset_id: str = Field(min_length=1, max_length=32)
+
+
+class RoundSummary(BaseModel):
+    id: str
+    connection_id: str
+    status: str
+    created_at: datetime
+    expires_at: datetime
+    has_my_input: bool
+    has_partner_input: bool
+
+
+class RoundDetail(RoundSummary):
+    my_asset_id: str | None
+    partner_asset_id: str | None

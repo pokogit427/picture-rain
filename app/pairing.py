@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Connection
@@ -45,3 +45,15 @@ def create_connection(db: Session, user_a_id: str, user_b_id: str) -> Connection
     connection = Connection(user_low_id=pair.low_id, user_high_id=pair.high_id)
     db.add(connection)
     return connection
+
+
+def find_member_connection(
+    db: Session, connection_id: str, user_id: str
+) -> Connection | None:
+    return db.scalar(
+        select(Connection).where(
+            Connection.id == connection_id,
+            Connection.status == "ACTIVE",
+            or_(Connection.user_low_id == user_id, Connection.user_high_id == user_id),
+        )
+    )

@@ -148,6 +148,47 @@ class InviteAttempt(Base):
     )
 
 
+class Round(Base):
+    __tablename__ = "rounds"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    connection_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("connections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="OPEN")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RoundInput(Base):
+    __tablename__ = "round_inputs"
+    __table_args__ = (
+        UniqueConstraint("round_id", "sender_id", name="uq_round_inputs_round_sender"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    round_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("rounds.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sender_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Photo(Base):
     __tablename__ = "photos"
 

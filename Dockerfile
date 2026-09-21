@@ -8,6 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY alembic.ini .
+COPY migrations ./migrations
 COPY app ./app
 RUN mkdir -p /app/data/uploads /app/data/processed \
     && useradd --uid 1001 --create-home --shell /usr/sbin/nologin appuser \

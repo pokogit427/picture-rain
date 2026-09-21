@@ -1,9 +1,35 @@
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("login_identifier", name="uq_users_login_identifier"),
+        UniqueConstraint("provider_subject", name="uq_users_provider_subject"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    login_identifier: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_subject: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="ACTIVE"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class Photo(Base):

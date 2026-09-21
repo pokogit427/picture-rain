@@ -1,7 +1,10 @@
 import os
 import time
 from collections.abc import Generator
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -10,6 +13,7 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg://picture_rain:picture_rain_dev@db:5432/picture_rain",
 )
+ALEMBIC_CONFIG_PATH = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
 class Base(DeclarativeBase):
@@ -26,7 +30,11 @@ def init_db(max_attempts: int = 30) -> None:
     last_error: OperationalError | None = None
     for attempt in range(max_attempts):
         try:
-            Base.metadata.create_all(bind=engine)
+            config = Config(str(ALEMBIC_CONFIG_PATH))
+            config.set_main_option(
+                "sqlalchemy.url", str(engine.url).replace("%", "%%")
+            )
+            command.upgrade(config, "head")
             return
         except OperationalError as error:
             last_error = error

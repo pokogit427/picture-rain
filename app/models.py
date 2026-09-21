@@ -152,6 +152,12 @@ class Photo(Base):
     __tablename__ = "photos"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    owner_id: Mapped[str | None] = mapped_column(
+        String(32),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False)

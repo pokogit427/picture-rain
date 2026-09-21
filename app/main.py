@@ -11,10 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.auth import router as auth_router
+from app.auth import get_current_user, router as auth_router
 from app.db import check_db, get_db, init_db
 from app.invite_api import router as invite_router
-from app.models import Photo, PhotoVariant
+from app.models import Photo, PhotoVariant, User
 from app.storage import (
     ALLOWED_CONTENT_TYPES,
     CONTENT_TYPE_BY_FORMAT,
@@ -69,10 +69,14 @@ def health(session: Session = Depends(get_db)) -> dict[str, str]:
 @app.get("/photos")
 def list_photos(
     limit: int = Query(default=100, ge=1, le=100),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> list[dict[str, str | int | None]]:
     photos = session.scalars(
-        select(Photo).order_by(Photo.created_at.desc()).limit(limit)
+        select(Photo)
+        .where(Photo.owner_id == user.id)
+        .order_by(Photo.created_at.desc())
+        .limit(limit)
     ).all()
     return [
         {
@@ -92,6 +96,7 @@ def list_photos(
 @app.post("/photos", status_code=status.HTTP_201_CREATED)
 async def upload_photo(
     file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> dict[str, str | int | None]:
     content_type = (file.content_type or "").lower()
@@ -133,6 +138,7 @@ async def upload_photo(
 
     photo = Photo(
         id=photo_id,
+        owner_id=user.id,
         original_filename=file.filename,
         content_type=content_type,
         size=len(content),
@@ -169,9 +175,12 @@ def transform_photo(
     width: int = Query(default=800, ge=64, le=2048),
     height: int = Query(default=800, ge=64, le=2048),
     output_format: Literal["jpg", "webp"] = Query(default="webp"),
+    user: User = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> dict[str, str | int | None]:
-    photo = session.get(Photo, photo_id)
+    photo = session.scalar(
+        select(Photo).where(Photo.id == photo_id, Photo.owner_id == user.id)
+    )
     resolved = find_photo(photo_id)
     if photo is None or resolved is None:
         raise HTTPException(
@@ -256,7 +265,17 @@ def download_variant(
     width: int = Path(ge=64, le=2048),
     height: int = Path(ge=64, le=2048),
     output_format: Literal["jpg", "webp"] = Path(),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
 ) -> FileResponse:
+    photo = session.scalar(
+        select(Photo).where(Photo.id == photo_id, Photo.owner_id == user.id)
+    )
+    if photo is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo variant not found.",
+        )
     try:
         candidate = variant_path(photo_id, width, height, output_format)
     except ValueError:
@@ -279,7 +298,19 @@ def download_variant(
 
 
 @app.get("/photos/{photo_id}")
-def download_photo(photo_id: str) -> FileResponse:
+def download_photo(
+    photo_id: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> FileResponse:
+    photo = session.scalar(
+        select(Photo).where(Photo.id == photo_id, Photo.owner_id == user.id)
+    )
+    if photo is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Photo not found.",
+        )
     resolved = find_photo(photo_id)
     if resolved is None:
         raise HTTPException(

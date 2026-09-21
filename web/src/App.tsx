@@ -1,34 +1,71 @@
 import { useEffect, useState } from "react";
-import { getHealth, getPhotos, type PhotoSummary } from "./api";
+import {
+  ApiError,
+  getHealth,
+  getMe,
+  getPhotos,
+  logout,
+  type PhotoSummary,
+  type UserSummary,
+} from "./api";
+import { AuthPanel } from "./components/AuthPanel";
 import "./styles.css";
 
 type LoadState = "loading" | "ready" | "error";
+type SessionState = "checking" | "anonymous" | "authenticated" | "error";
 
 function App() {
+  const [sessionState, setSessionState] = useState<SessionState>("checking");
+  const [user, setUser] = useState<UserSummary | null>(null);
   const [healthState, setHealthState] = useState<LoadState>("loading");
   const [photoState, setPhotoState] = useState<LoadState>("loading");
   const [photos, setPhotos] = useState<PhotoSummary[]>([]);
 
   useEffect(() => {
     let active = true;
-
-    Promise.all([getHealth(), getPhotos()])
-      .then(([, loadedPhotos]) => {
+    getMe()
+      .then((currentUser) => {
         if (!active) return;
-        setPhotos(loadedPhotos);
-        setHealthState("ready");
-        setPhotoState("ready");
+        setUser(currentUser);
+        setSessionState("authenticated");
+        void loadDashboard(setHealthState, setPhotoState, setPhotos);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return;
-        setHealthState("error");
-        setPhotoState("error");
+        if (error instanceof ApiError && error.status === 401) {
+          setSessionState("anonymous");
+        } else {
+          setSessionState("error");
+        }
       });
 
     return () => {
       active = false;
     };
   }, []);
+
+  async function handleAuthenticated(currentUser: UserSummary) {
+    setUser(currentUser);
+    setSessionState("authenticated");
+    await loadDashboard(setHealthState, setPhotoState, setPhotos);
+  }
+
+  async function handleLogout() {
+    await logout();
+    setUser(null);
+    setPhotos([]);
+    setSessionState("anonymous");
+  }
+
+  if (sessionState === "checking") {
+    return <LoadingScreen message="안전한 세션을 확인하고 있어요…" />;
+  }
+  if (sessionState === "anonymous") {
+    return <AuthPanel onAuthenticated={handleAuthenticated} />;
+  }
+  if (sessionState === "error" || user === null) {
+    return <LoadingScreen message="서비스 연결을 확인해주세요." error />;
+  }
 
   return (
     <div className="app-shell">
@@ -37,7 +74,13 @@ function App() {
           <p className="eyebrow">PICTURE RAIN</p>
           <h1>둘만의 사진 놀이터</h1>
         </div>
-        <span className="stage-badge">D01 · 기반 화면</span>
+        <div className="account-actions">
+          <span className="user-pill">@{user.login_identifier}</span>
+          <button className="logout-button" onClick={handleLogout} type="button">
+            로그아웃
+          </button>
+          <span className="stage-badge">D03 · 인증 기반</span>
+        </div>
       </header>
 
       <main className="dashboard">
@@ -46,7 +89,7 @@ function App() {
             <p className="eyebrow">오늘의 연결</p>
             <h2>사진을 보내고, 함께 완성해요.</h2>
             <p className="muted">
-              현재는 웹 화면과 기존 API 연결을 확인하는 개발 기반입니다.
+              현재는 로그인·세션과 기존 API 연결을 확인하는 개발 기반입니다.
               연결·편집·동시 공개 기능은 다음 단계에서 추가됩니다.
             </p>
           </div>
@@ -87,7 +130,7 @@ function App() {
                 <p className="eyebrow">PRIVATE CIRCLE</p>
                 <h2>연결된 상대</h2>
               </div>
-              <button type="button" disabled title="D03에서 추가됩니다">
+              <button type="button" disabled title="D05에서 추가됩니다">
                 + 연결하기
               </button>
             </div>
@@ -130,6 +173,34 @@ function App() {
         <span>기능 구현 단계 전용 개발 화면</span>
       </footer>
     </div>
+  );
+}
+
+async function loadDashboard(
+  setHealthState: (state: LoadState) => void,
+  setPhotoState: (state: LoadState) => void,
+  setPhotos: (photos: PhotoSummary[]) => void,
+) {
+  try {
+    const [, loadedPhotos] = await Promise.all([getHealth(), getPhotos()]);
+    setPhotos(loadedPhotos);
+    setHealthState("ready");
+    setPhotoState("ready");
+  } catch {
+    setHealthState("error");
+    setPhotoState("error");
+  }
+}
+
+function LoadingScreen({ message, error = false }: { message: string; error?: boolean }) {
+  return (
+    <main className="auth-layout">
+      <section className="auth-card loading-card">
+        <p className="eyebrow">PICTURE RAIN</p>
+        <h1>{error ? "연결이 필요해요" : "잠시만요"}</h1>
+        <p className={error ? "auth-error" : "auth-description"}>{message}</p>
+      </section>
+    </main>
   );
 }
 

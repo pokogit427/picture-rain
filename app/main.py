@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.auth import router as auth_router
 from app.db import check_db, get_db, init_db
 from app.models import Photo, PhotoVariant
 from app.storage import (
@@ -34,10 +35,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="Picture Rain API",
-    version="0.3.0",
+    version="0.4.0",
     description="Photo upload, transformation, and sharing service.",
     lifespan=lifespan,
 )
+app.include_router(auth_router)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

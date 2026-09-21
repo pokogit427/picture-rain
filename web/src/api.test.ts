@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getPhotos } from "./api";
+import { getHealth, getMe, getPhotos } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -13,7 +13,28 @@ describe("API client", () => {
     );
 
     await expect(getHealth()).resolves.toEqual(response);
-    expect(fetch).toHaveBeenCalledWith("/api/health");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/health",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("loads the authenticated user through the session cookie", async () => {
+    const user = {
+      id: "user-1",
+      login_identifier: "sample_user",
+      status: "ACTIVE",
+      created_at: "now",
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(user), { status: 200 }),
+    );
+
+    await expect(getMe()).resolves.toEqual(user);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/auth/me",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("returns the photo list from the existing API", async () => {
@@ -34,14 +55,23 @@ describe("API client", () => {
     );
 
     await expect(getPhotos()).resolves.toEqual(photos);
-    expect(fetch).toHaveBeenCalledWith("/api/photos");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/photos",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("exposes a useful error when the API rejects a request", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("unavailable", { status: 503 }),
+      new Response(JSON.stringify({ detail: "Authentication required." }), {
+        status: 401,
+      }),
     );
 
-    await expect(getHealth()).rejects.toThrow("API 요청 실패 (503)");
+    await expect(getMe()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 401,
+      message: "Authentication required.",
+    });
   });
 });

@@ -25,6 +25,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-picture_rain}:${POSTGRES_PASSWORD:-picture_rain_dev}@db:5432/${POSTGRES_DB:-picture_rain}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
       - ./data/uploads:/app/data/uploads
       - ./data/processed:/app/data/processed

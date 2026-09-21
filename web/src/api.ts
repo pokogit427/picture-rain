@@ -15,23 +15,84 @@ export interface PhotoSummary {
   url: string;
 }
 
+export interface UserSummary {
+  id: string;
+  login_identifier: string;
+  status: string;
+  created_at: string;
+}
+
+export interface AuthCredentials {
+  login_identifier: string;
+  password: string;
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(
   /\/$/,
   "",
 );
 
-async function get<T>(path: string): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`);
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
+    credentials: "include",
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+
   if (!response.ok) {
-    throw new Error(`API 요청 실패 (${response.status})`);
+    let message = `API 요청 실패 (${response.status})`;
+    try {
+      const body = (await response.json()) as { detail?: string };
+      if (body.detail) message = body.detail;
+    } catch {
+      // Keep the status-based message when the server has no JSON error body.
+    }
+    throw new ApiError(message, response.status);
   }
+
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 export function getHealth(): Promise<HealthResponse> {
-  return get<HealthResponse>("/health");
+  return request<HealthResponse>("/health");
 }
 
 export function getPhotos(): Promise<PhotoSummary[]> {
-  return get<PhotoSummary[]>("/photos");
+  return request<PhotoSummary[]>("/photos");
+}
+
+export function getMe(): Promise<UserSummary> {
+  return request<UserSummary>("/auth/me");
+}
+
+export function register(credentials: AuthCredentials): Promise<UserSummary> {
+  return request<UserSummary>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export function login(credentials: AuthCredentials): Promise<UserSummary> {
+  return request<UserSummary>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/auth/logout", { method: "POST" });
 }

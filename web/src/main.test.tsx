@@ -25,6 +25,10 @@ describe("web shell", () => {
         };
       } else if (url.endsWith("/health")) {
         body = { status: "ok", database: "ok", timestamp: "now" };
+      } else if (url.endsWith("/connections")) {
+        body = [];
+      } else if (url.endsWith("/invites/current")) {
+        body = { code: "1234", expires_at: "later" };
       } else {
         body = [];
       }
@@ -44,6 +48,7 @@ describe("web shell", () => {
     expect(container.textContent).toContain("연결된 상대");
     expect(container.textContent).toContain("최근 사진");
     expect(container.textContent).toContain("@sample_user");
+    expect(container.textContent).toContain("1234");
   });
 
   it("shows the login form when the session is absent", async () => {

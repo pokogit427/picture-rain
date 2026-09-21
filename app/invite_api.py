@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -79,6 +79,34 @@ def issue_invite(
     db: Session = Depends(get_db),
 ) -> InviteResponse:
     return _issue_invite(db, user.id)
+
+
+@router.get("/connections", response_model=list[ConnectionResponse])
+def list_connections(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ConnectionResponse]:
+    connections = db.scalars(
+        select(Connection)
+        .where(
+            Connection.status == "ACTIVE",
+            or_(Connection.user_low_id == user.id, Connection.user_high_id == user.id),
+        )
+        .order_by(Connection.created_at.desc())
+    ).all()
+    return [
+        ConnectionResponse(
+            id=connection.id,
+            partner_user_id=(
+                connection.user_high_id
+                if connection.user_low_id == user.id
+                else connection.user_low_id
+            ),
+            status=connection.status,
+            created_at=connection.created_at,
+        )
+        for connection in connections
+    ]
 
 
 @router.get("/invites/current", response_model=InviteResponse)

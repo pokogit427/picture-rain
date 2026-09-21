@@ -9,6 +9,7 @@ import {
   type UserSummary,
 } from "./api";
 import { AuthPanel } from "./components/AuthPanel";
+import { ConnectionPanel } from "./components/ConnectionPanel";
 import "./styles.css";
 
 type LoadState = "loading" | "ready" | "error";
@@ -79,7 +80,7 @@ function App() {
           <button className="logout-button" onClick={handleLogout} type="button">
             로그아웃
           </button>
-          <span className="stage-badge">D03 · 인증 기반</span>
+          <span className="stage-badge">D06 · 연결 준비</span>
         </div>
       </header>
 
@@ -89,8 +90,8 @@ function App() {
             <p className="eyebrow">오늘의 연결</p>
             <h2>사진을 보내고, 함께 완성해요.</h2>
             <p className="muted">
-              현재는 로그인·세션과 기존 API 연결을 확인하는 개발 기반입니다.
-              연결·편집·동시 공개 기능은 다음 단계에서 추가됩니다.
+              초대 코드로 연결된 상대를 관리하고 사진 교환을 준비하는 화면입니다.
+              편집·동시 공개 기능은 다음 단계에서 이어집니다.
             </p>
           </div>
           <div className="rain-orb" aria-hidden="true">✦</div>
@@ -124,22 +125,7 @@ function App() {
         </section>
 
         <section className="content-grid">
-          <article className="panel connections-panel">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">PRIVATE CIRCLE</p>
-                <h2>연결된 상대</h2>
-              </div>
-              <button type="button" disabled title="D05에서 추가됩니다">
-                + 연결하기
-              </button>
-            </div>
-            <div className="empty-state">
-              <span className="empty-icon">☁</span>
-              <h3>아직 연결된 상대가 없어요</h3>
-              <p>초대 코드로 소중한 사람을 연결하는 기능이 준비 중입니다.</p>
-            </div>
-          </article>
+          <ConnectionPanel />
 
           <article className="panel photos-panel">
             <div className="section-heading">

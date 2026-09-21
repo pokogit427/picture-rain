@@ -22,6 +22,18 @@ export interface UserSummary {
   created_at: string;
 }
 
+export interface InviteSummary {
+  code: string;
+  expires_at: string;
+}
+
+export interface ConnectionSummary {
+  id: string;
+  partner_user_id: string;
+  status: string;
+  created_at: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -95,4 +107,23 @@ export function login(credentials: AuthCredentials): Promise<UserSummary> {
 
 export function logout(): Promise<void> {
   return request<void>("/auth/logout", { method: "POST" });
+}
+
+export function getConnections(): Promise<ConnectionSummary[]> {
+  return request<ConnectionSummary[]>("/connections");
+}
+
+export function getCurrentInvite(): Promise<InviteSummary> {
+  return request<InviteSummary>("/invites/current");
+}
+
+export function acceptInvite(invite_code: string): Promise<ConnectionSummary> {
+  return request<ConnectionSummary>("/connections", {
+    method: "POST",
+    body: JSON.stringify({ invite_code }),
+  });
+}
+
+export function issueInvite(): Promise<InviteSummary> {
+  return request<InviteSummary>("/invites", { method: "POST" });
 }

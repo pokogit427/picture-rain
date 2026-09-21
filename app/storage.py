@@ -4,6 +4,7 @@ from uuid import UUID
 
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/data/uploads"))
 PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", "/app/data/processed"))
+ASSET_DIR = Path(os.getenv("ASSET_DIR", "/app/data/uploads/assets"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 
 ALLOWED_CONTENT_TYPES = {
@@ -55,3 +56,10 @@ def variant_path(photo_id: str, width: int, height: int, output_format: str) -> 
         raise ValueError("Unsupported output format")
     extension = OUTPUT_FORMATS[output_format][2]
     return PROCESSED_DIR / f"{normalized_id}_{width}x{height}{extension}"
+
+
+def asset_path(asset_id: str, content_type: str) -> Path:
+    normalized_id = _validate_photo_id(asset_id)
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        raise ValueError("Unsupported asset content type")
+    return ASSET_DIR / f"{normalized_id}{ALLOWED_CONTENT_TYPES[content_type]}"

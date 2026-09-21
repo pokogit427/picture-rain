@@ -21,6 +21,7 @@ from app.storage import (
     CONTENT_TYPE_BY_FORMAT,
     MAX_UPLOAD_BYTES,
     OUTPUT_FORMATS,
+    ASSET_DIR,
     PROCESSED_DIR,
     UPLOAD_DIR,
     find_photo,
@@ -47,6 +48,7 @@ app.include_router(round_router)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+ASSET_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _created_at(value: datetime | None) -> str | None:

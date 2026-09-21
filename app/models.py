@@ -183,7 +183,37 @@ class RoundInput(Base):
     sender_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    asset_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    asset_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    connection_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("connections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    round_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("rounds.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    owner_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, server_default="INPUT")
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ACTIVE")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

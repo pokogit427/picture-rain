@@ -1,15 +1,18 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.asset_images import normalize_image
 from app.auth import get_current_user
 from app.db import get_db
-from app.models import Round, RoundInput, User
+from app.models import Asset, Round, RoundInput, User
 from app.pairing import find_member_connection
 from app.schemas import RoundCreateRequest, RoundDetail, RoundInputRequest, RoundSummary
+from app.storage import MAX_UPLOAD_BYTES, asset_path
 
 router = APIRouter(tags=["rounds"])
 ROUND_TTL = timedelta(hours=24)
@@ -49,6 +52,97 @@ def _load_member_round(db: Session, round_id: str, user_id: str) -> Round:
     if round_item is None or find_member_connection(db, round_item.connection_id, user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Round not found.")
     return round_item
+
+
+async def _read_normalized_upload(file: UploadFile):
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    try:
+        return normalize_image(content, file.content_type or "")
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(error),
+        ) from None
+
+
+def _store_asset(
+    db: Session,
+    *,
+    normalized,
+    connection_id: str,
+    round_id: str,
+    owner_id: str,
+) -> Asset:
+    asset_id = uuid4().hex
+    destination = asset_path(asset_id, normalized.content_type)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(normalized.content)
+    asset = Asset(
+        id=asset_id,
+        connection_id=connection_id,
+        round_id=round_id,
+        owner_id=owner_id,
+        kind="INPUT",
+        content_type=normalized.content_type,
+        size=len(normalized.content),
+        width=normalized.width,
+        height=normalized.height,
+        storage_path=str(destination),
+        expires_at=_now() + ROUND_TTL,
+    )
+    db.add(asset)
+    return asset
+
+
+async def _create_round_with_upload(
+    *,
+    connection_id: str,
+    user: User,
+    file: UploadFile,
+    db: Session,
+) -> RoundDetail:
+    connection = find_member_connection(db, connection_id, user.id)
+    if connection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    normalized = await _read_normalized_upload(file)
+    now = _now()
+    round_item = Round(connection_id=connection.id, created_by_id=user.id, expires_at=now + ROUND_TTL)
+    db.add(round_item)
+    db.flush()
+    asset = _store_asset(
+        db,
+        normalized=normalized,
+        connection_id=connection.id,
+        round_id=round_item.id,
+        owner_id=user.id,
+    )
+    db.add(RoundInput(round_id=round_item.id, sender_id=user.id, asset_id=asset.id))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        asset_path(asset.id, asset.content_type).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Photo input could not be saved.",
+        ) from None
+    return _round_response(round_item, _load_inputs(db, round_item.id), user.id)
+
+
+@router.post(
+    "/connections/{connection_id}/rounds/upload",
+    response_model=RoundDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_first_round_input(
+    file: UploadFile = File(...),
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RoundDetail:
+    return await _create_round_with_upload(
+        connection_id=connection_id, user=user, file=file, db=db
+    )
 
 
 @router.post(
@@ -154,4 +248,43 @@ def add_round_input(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Your round input is already fixed.") from None
+    return _round_response(round_item, _load_inputs(db, round_id), user.id)
+
+
+@router.post("/rounds/{round_id}/input-upload", response_model=RoundDetail)
+async def upload_partner_round_input(
+    file: UploadFile = File(...),
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RoundDetail:
+    round_item = _load_member_round(db, round_id, user.id)
+    _expire_if_needed(round_item, _now())
+    if round_item.status != "OPEN":
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer accepting inputs.")
+    existing = db.scalar(
+        select(RoundInput).where(RoundInput.round_id == round_id, RoundInput.sender_id == user.id)
+    )
+    if existing is not None:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Your round input is already fixed.")
+    normalized = await _read_normalized_upload(file)
+    asset = _store_asset(
+        db,
+        normalized=normalized,
+        connection_id=round_item.connection_id,
+        round_id=round_item.id,
+        owner_id=user.id,
+    )
+    db.add(RoundInput(round_id=round_id, sender_id=user.id, asset_id=asset.id))
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        asset_path(asset.id, asset.content_type).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Photo input could not be saved.",
+        ) from None
     return _round_response(round_item, _load_inputs(db, round_id), user.id)

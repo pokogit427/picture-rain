@@ -18,3 +18,19 @@ class UserResponse(BaseModel):
     login_identifier: str
     status: str
     created_at: datetime
+
+
+class InviteResponse(BaseModel):
+    code: str
+    expires_at: datetime
+
+
+class ConnectionRequest(BaseModel):
+    invite_code: str = Field(pattern=r"^\d{4}$")
+
+
+class ConnectionResponse(BaseModel):
+    id: str
+    partner_user_id: str
+    status: str
+    created_at: datetime

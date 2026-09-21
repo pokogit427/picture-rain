@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import router as auth_router
 from app.db import check_db, get_db, init_db
+from app.invite_api import router as invite_router
 from app.models import Photo, PhotoVariant
 from app.storage import (
     ALLOWED_CONTENT_TYPES,
@@ -40,6 +41,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(auth_router)
+app.include_router(invite_router)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

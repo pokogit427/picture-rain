@@ -81,6 +81,14 @@ class DraftResponse(BaseModel):
     expires_at: datetime
 
 
+class SubmissionResponse(BaseModel):
+    id: str
+    round_id: str
+    status: str
+    result: InputAssetResponse
+    submitted_at: datetime
+
+
 class InboxItem(BaseModel):
     round_id: str
     connection_id: str

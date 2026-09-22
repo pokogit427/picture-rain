@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 from app.asset_images import normalize_image
 from app.auth import get_current_user
 from app.db import get_db
-from app.models import Asset, Draft, Round, RoundInput, User
+from app.models import Asset, Draft, Round, RoundInput, RoundSubmission, User
 from app.pairing import find_member_connection
 from app.schemas import (
     InboxItem,
     InputAssetResponse,
     DraftResponse,
+    SubmissionResponse,
     RoundCreateRequest,
     RoundDetail,
     RoundInputRequest,
@@ -94,6 +95,28 @@ def _draft_response(db: Session, draft: Draft) -> DraftResponse:
         preview=preview,
         updated_at=draft.updated_at,
         expires_at=draft.expires_at,
+    )
+
+
+def _submission_response(db: Session, submission: RoundSubmission) -> SubmissionResponse:
+    asset = db.get(Asset, submission.asset_id)
+    if asset is None or asset.state != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Submitted result is no longer available.")
+    return SubmissionResponse(
+        id=submission.id,
+        round_id=submission.round_id,
+        status=submission.status,
+        result=_asset_response(asset),
+        submitted_at=submission.submitted_at,
+    )
+
+
+def _existing_submission(db: Session, round_id: str, user_id: str) -> RoundSubmission | None:
+    return db.scalar(
+        select(RoundSubmission).where(
+            RoundSubmission.round_id == round_id,
+            RoundSubmission.editor_id == user_id,
+        )
     )
 
 
@@ -382,6 +405,9 @@ async def upload_layer_asset(
     if round_item.status != "OPEN":
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer editable.")
+    if _existing_submission(db, round_id, user.id) is not None:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You already submitted this round.")
     layer_count = db.scalar(
         select(func.count()).select_from(Asset).where(
             Asset.round_id == round_id,
@@ -417,6 +443,8 @@ def get_draft(
     db: Session = Depends(get_db),
 ) -> DraftResponse:
     _load_member_round(db, round_id, user.id)
+    if _existing_submission(db, round_id, user.id) is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found.")
     draft = db.scalar(
         select(Draft).where(
             Draft.round_id == round_id,
@@ -447,6 +475,9 @@ async def save_draft(
     if round_item.status != "OPEN":
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer editable.")
+    if _existing_submission(db, round_id, user.id) is not None:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You already submitted this round.")
     document = _parse_draft_document(document_json)
     draft = db.scalar(
         select(Draft).where(Draft.round_id == round_id, Draft.editor_id == user.id)
@@ -494,6 +525,54 @@ async def save_draft(
     return _draft_response(db, draft)
 
 
+@router.post("/rounds/{round_id}/submit", response_model=SubmissionResponse)
+def submit_round(
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SubmissionResponse:
+    round_item = _load_member_round(db, round_id, user.id)
+    existing = _existing_submission(db, round_id, user.id)
+    if existing is not None:
+        return _submission_response(db, existing)
+    _expire_if_needed(round_item, _now())
+    if round_item.status != "OPEN":
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer accepting submissions.")
+    draft = db.scalar(
+        select(Draft).where(
+            Draft.round_id == round_id,
+            Draft.editor_id == user.id,
+            Draft.status == "ACTIVE",
+        )
+    )
+    if draft is None or draft.expires_at <= _now() or draft.preview_asset_id is None:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Save a composed draft before submitting.")
+    asset = db.get(Asset, draft.preview_asset_id)
+    if asset is None or asset.state != "ACTIVE" or asset.owner_id != user.id:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Draft preview is no longer available.")
+    asset.kind = "SUBMISSION"
+    submission = RoundSubmission(
+        round_id=round_id,
+        editor_id=user.id,
+        asset_id=asset.id,
+    )
+    draft.preview_asset_id = None
+    db.add(submission)
+    db.delete(draft)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raced = _existing_submission(db, round_id, user.id)
+        if raced is not None:
+            return _submission_response(db, raced)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The round submission already exists.") from None
+    return _submission_response(db, submission)
+
+
 @router.delete("/rounds/{round_id}/draft", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_draft(
     round_id: str = Path(min_length=32, max_length=32),
@@ -501,6 +580,8 @@ def cancel_draft(
     db: Session = Depends(get_db),
 ) -> None:
     _load_member_round(db, round_id, user.id)
+    if _existing_submission(db, round_id, user.id) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Submitted rounds cannot cancel drafts.")
     draft = db.scalar(
         select(Draft).where(Draft.round_id == round_id, Draft.editor_id == user.id)
     )
@@ -571,7 +652,7 @@ def download_asset(
     round_item = db.get(Round, asset.round_id)
     if round_item is None or find_member_connection(db, asset.connection_id, user.id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
-    if asset.kind in {"INSERT", "DRAFT_PREVIEW"} and asset.owner_id != user.id:
+    if asset.kind in {"INSERT", "DRAFT_PREVIEW", "SUBMISSION"} and asset.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     path = asset.storage_path
     if not path or not FilePath(path).is_file():

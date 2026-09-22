@@ -67,6 +67,14 @@ export interface DraftResponse {
   expires_at: string;
 }
 
+export interface SubmissionResponse {
+  id: string;
+  round_id: string;
+  status: string;
+  result: InboxItem["input"];
+  submitted_at: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -205,4 +213,8 @@ export function saveDraft(
 
 export function cancelDraft(roundId: string): Promise<void> {
   return request<void>(`/rounds/${roundId}/draft`, { method: "DELETE" });
+}
+
+export function submitRound(roundId: string): Promise<SubmissionResponse> {
+  return request<SubmissionResponse>(`/rounds/${roundId}/submit`, { method: "POST" });
 }

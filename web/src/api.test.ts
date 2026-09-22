@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getMe, getPhotos, saveDraft } from "./api";
+import { getHealth, getMe, getPhotos, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -93,5 +93,32 @@ describe("API client", () => {
     const request = fetchMock.mock.calls[0]?.[1];
     expect(request?.headers).not.toEqual(expect.objectContaining({ "Content-Type": "application/json" }));
     expect(request?.body).toBeInstanceOf(FormData);
+  });
+
+  it("submits a round through the idempotent completion endpoint", async () => {
+    const submission = {
+      id: "submission-1",
+      round_id: "round-1",
+      status: "SUBMITTED",
+      result: {
+        id: "asset-1",
+        content_type: "image/png",
+        size: 10,
+        width: 1,
+        height: 1,
+        created_at: "now",
+        url: "/assets/asset-1/content",
+      },
+      submitted_at: "now",
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(submission), { status: 200 }),
+    );
+
+    await expect(submitRound("round-1")).resolves.toEqual(submission);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/rounds/round-1/submit",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
+    );
   });
 });

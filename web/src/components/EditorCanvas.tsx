@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { cancelDraft, getAssetUrl, getDraft, saveDraft, uploadLayer, type InboxItem } from "../api";
+import { cancelDraft, getAssetUrl, getDraft, saveDraft, submitRound, uploadLayer, type InboxItem } from "../api";
 
 export type Point = { x: number; y: number };
 export type Stroke = { points: Point[]; color: string; width: number };
@@ -170,6 +170,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [draftState, setDraftState] = useState<"loading" | "idle" | "dirty" | "saving" | "saved" | "error">("loading");
   const [draftVersion, setDraftVersion] = useState(1);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [submissionState, setSubmissionState] = useState<"ready" | "submitting" | "submitted" | "error">("ready");
   const hydratingDraftRef = useRef(true);
   const suppressDirtyRef = useRef(false);
 
@@ -194,6 +195,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     let active = true;
     hydratingDraftRef.current = true;
     setDraftError(null);
+    setSubmissionState("ready");
     const draftPromise = getDraft(item.round_id).catch((reason: unknown) => {
       if (active) setDraftError(reason instanceof Error ? reason.message : "초안을 불러오지 못했어요.");
       return null;
@@ -434,8 +436,8 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     });
   }
 
-  async function saveCurrentDraft() {
-    if (draftState === "saving" || imageState !== "ready") return;
+  async function saveCurrentDraft(): Promise<boolean> {
+    if (draftState === "saving" || imageState !== "ready") return false;
     setDraftState("saving");
     setDraftError(null);
     try {
@@ -447,14 +449,34 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       );
       setDraftVersion(response.version);
       setDraftState("saved");
+      return true;
     } catch (reason) {
       setDraftState("error");
       setDraftError(reason instanceof Error ? reason.message : "초안을 저장하지 못했어요.");
+      return false;
+    }
+  }
+
+  async function submitCurrentDraft() {
+    if (submissionState === "submitting" || submissionState === "submitted") return;
+    setSubmissionState("submitting");
+    setDraftError(null);
+    if (!(await saveCurrentDraft())) {
+      setSubmissionState("error");
+      return;
+    }
+    try {
+      await submitRound(item.round_id);
+      setSubmissionState("submitted");
+      setDraftState("saved");
+    } catch (reason) {
+      setSubmissionState("error");
+      setDraftError(reason instanceof Error ? reason.message : "완료 제출에 실패했어요.");
     }
   }
 
   async function removeDraft() {
-    if (draftState === "saving") return;
+    if (draftState === "saving" || submissionState === "submitted") return;
     try {
       await cancelDraft(item.round_id);
       suppressDirtyRef.current = true;
@@ -468,6 +490,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       setImageVersion((version) => version + 1);
       setDraftVersion(1);
       setDraftState("idle");
+      setSubmissionState("ready");
       setDraftError(null);
     } catch (reason) {
       setDraftState("error");
@@ -525,11 +548,14 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       </div>
       <label className="zoom-control" htmlFor="editor-zoom"><span>확대/축소</span><input id="editor-zoom" max="2" min="0.75" onChange={(event) => setZoom(Number(event.target.value))} step="0.05" type="range" value={zoom} /><output>{Math.round(zoom * 100)}%</output></label>
       <div className="draft-controls">
-        <button className="tool-button active" disabled={draftState === "saving" || draftState === "loading" || imageState !== "ready"} onClick={() => void saveCurrentDraft()} type="button">
+        <button className="tool-button active" disabled={draftState === "saving" || draftState === "loading" || imageState !== "ready" || submissionState === "submitted"} onClick={() => void saveCurrentDraft()} type="button">
           {draftState === "saving" ? "초안 저장 중…" : "초안 저장"}
         </button>
-        <button className="tool-button" disabled={draftState === "saving" || draftState === "loading"} onClick={() => void removeDraft()} type="button">초안 취소</button>
-        <span className="draft-status">{draftState === "saved" ? `저장됨 · v${draftVersion}` : draftState === "dirty" ? "저장되지 않은 변경" : draftState === "loading" ? "초안 확인 중…" : "임시 초안 없음"}</span>
+        <button className="tool-button" disabled={draftState === "saving" || draftState === "loading" || submissionState === "submitted"} onClick={() => void removeDraft()} type="button">초안 취소</button>
+        <button className="tool-button active" disabled={draftState === "saving" || draftState === "loading" || imageState !== "ready" || submissionState === "submitted"} onClick={() => void submitCurrentDraft()} type="button">
+          {submissionState === "submitting" ? "제출 중…" : submissionState === "submitted" ? "제출 완료" : "완료하고 보내기"}
+        </button>
+        <span className="draft-status">{submissionState === "submitted" ? "상대가 완료할 때까지 결과는 비공개입니다." : draftState === "saved" ? `저장됨 · v${draftVersion}` : draftState === "dirty" ? "저장되지 않은 변경" : draftState === "loading" ? "초안 확인 중…" : "임시 초안 없음"}</span>
       </div>
       <p className="editor-note">레이어를 선택해 이동·크기·회전을 조정하고, 필요하면 삭제할 수 있습니다.</p>
     </section>

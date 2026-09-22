@@ -246,6 +246,30 @@ class Draft(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class RoundSubmission(Base):
+    __tablename__ = "round_submissions"
+    __table_args__ = (
+        UniqueConstraint("round_id", "editor_id", name="uq_round_submissions_round_editor"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    round_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("rounds.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    editor_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    asset_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="SUBMITTED")
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Photo(Base):
     __tablename__ = "photos"
 

@@ -6,6 +6,7 @@ import {
   getInbox,
   type InboxItem,
 } from "../api";
+import { EditorCanvas } from "./EditorCanvas";
 
 export function InboxPanel() {
   const [items, setItems] = useState<InboxItem[]>([]);
@@ -61,16 +62,19 @@ export function InboxPanel() {
             ))}
           </div>
           {selected && (
-            <div className="received-photo-card">
-              <img
-                alt="상대가 보낸 편집 대상"
-                src={getAssetUrl(selected.input.url)}
-              />
-              <div>
-                <strong>편집할 사진</strong>
-                <small>{selected.input.width} × {selected.input.height} · 다음 단계에서 편집</small>
+            <>
+              <div className="received-photo-card">
+                <img
+                  alt="상대가 보낸 편집 대상"
+                  src={getAssetUrl(selected.input.url)}
+                />
+                <div>
+                  <strong>편집할 사진</strong>
+                  <small>{selected.input.width} × {selected.input.height} · 다음 단계에서 편집</small>
+                </div>
               </div>
-            </div>
+              <EditorCanvas item={selected} />
+            </>
           )}
         </div>
       )}

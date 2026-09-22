@@ -72,6 +72,18 @@ h3 { margin: 0; font-size: 1rem; }
 .received-photo-card img { display: block; width: 100%; max-height: 240px; object-fit: contain; background: #0c1020; }
 .received-photo-card div { display: grid; gap: 4px; padding: 12px; }
 .received-photo-card small { color: #9998ae; font-size: 0.74rem; }
+.editor-panel { display: grid; gap: 13px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #343251; }
+.editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.editor-size { color: #a7a1bf; font-size: 0.75rem; }
+.canvas-stage { display: grid; place-items: center; min-height: 180px; overflow: auto; border: 1px solid #343251; border-radius: 14px; background: #0b0f1d; }
+.editor-canvas { display: none; max-width: 100%; height: auto; touch-action: none; }
+.editor-canvas.visible { display: block; }
+.canvas-message { margin: 0; padding: 24px; color: #aaa5bc; font-size: 0.8rem; }
+.canvas-message.error { color: #f09b9b; }
+.zoom-control { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; color: #c8c3d7; font-size: 0.76rem; font-weight: 700; }
+.zoom-control input { width: 100%; accent-color: #8066d1; }
+.zoom-control output { color: #e3d9ff; font-variant-numeric: tabular-nums; }
+.editor-note { margin: 0; color: #85839b; font-size: 0.72rem; line-height: 1.5; }
 .footer-note { display: flex; justify-content: space-between; gap: 16px; padding: 30px 0 34px; color: #77758f; font-size: 0.75rem; }
 .auth-layout { display: grid; place-items: center; width: min(100% - 28px, 520px); min-height: 100vh; margin: 0 auto; }
 .auth-card { width: 100%; padding: 38px; border: 1px solid #4e4774; border-radius: 28px; background: linear-gradient(145deg, #28234b, #191c32); box-shadow: 0 22px 80px #05071255; }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getMe, getPhotos, getResults, saveDraft, submitRound } from "./api";
+import { getHealth, getHistory, getMe, getPhotos, getResults, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -141,6 +141,32 @@ describe("API client", () => {
     await expect(getResults("round-1")).resolves.toEqual(results);
     expect(fetch).toHaveBeenCalledWith(
       "/api/rounds/round-1/results",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("loads only result history for a selected connection", async () => {
+    const history = [{
+      entry_id: "entry-1",
+      connection_id: "connection-1",
+      round_id: "round-1",
+      submission_id: "submission-1",
+      is_mine: false,
+      content_type: "image/png",
+      size: 10,
+      width: 1,
+      height: 1,
+      submitted_at: "now",
+      revealed_at: "later",
+      url: "/connections/connection-1/history/entry-1/content",
+    }];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(history), { status: 200 }),
+    );
+
+    await expect(getHistory("connection-1")).resolves.toEqual(history);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/connections/connection-1/history",
       expect.objectContaining({ credentials: "include" }),
     );
   });

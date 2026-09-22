@@ -270,6 +270,35 @@ class RoundSubmission(Base):
     )
 
 
+class HistoryEntry(Base):
+    __tablename__ = "history_entries"
+    __table_args__ = (
+        UniqueConstraint("viewer_id", "submission_id", name="uq_history_entries_viewer_submission"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    connection_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("connections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    round_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("rounds.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    submission_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("round_submissions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    viewer_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ACTIVE")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    purge_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Photo(Base):
     __tablename__ = "photos"
 

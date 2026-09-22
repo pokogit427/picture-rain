@@ -101,6 +101,21 @@ class ResultResponse(BaseModel):
     url: str
 
 
+class HistoryItem(BaseModel):
+    entry_id: str
+    connection_id: str
+    round_id: str
+    submission_id: str
+    is_mine: bool
+    content_type: str
+    size: int
+    width: int
+    height: int
+    submitted_at: datetime
+    revealed_at: datetime
+    url: str
+
+
 class InboxItem(BaseModel):
     round_id: str
     connection_id: str

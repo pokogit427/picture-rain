@@ -11,6 +11,7 @@ import {
 import { AuthPanel } from "./components/AuthPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { InboxPanel } from "./components/InboxPanel";
+import { HistoryPanel } from "./components/HistoryPanel";
 import "./styles.css";
 
 type LoadState = "loading" | "ready" | "error";
@@ -129,6 +130,8 @@ function App() {
           <ConnectionPanel />
 
           <InboxPanel />
+
+          <HistoryPanel />
 
           <article className="panel photos-panel">
             <div className="section-heading">

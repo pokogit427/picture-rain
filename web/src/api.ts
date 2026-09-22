@@ -87,6 +87,21 @@ export interface ResultSummary {
   url: string;
 }
 
+export interface HistoryItem {
+  entry_id: string;
+  connection_id: string;
+  round_id: string;
+  submission_id: string;
+  is_mine: boolean;
+  content_type: string;
+  size: number;
+  width: number;
+  height: number;
+  submitted_at: string;
+  revealed_at: string;
+  url: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -233,4 +248,8 @@ export function submitRound(roundId: string): Promise<SubmissionResponse> {
 
 export function getResults(roundId: string): Promise<ResultSummary[]> {
   return request<ResultSummary[]>(`/rounds/${roundId}/results`);
+}
+
+export function getHistory(connectionId: string): Promise<HistoryItem[]> {
+  return request<HistoryItem[]>(`/connections/${connectionId}/history`);
 }

@@ -14,12 +14,13 @@ from sqlalchemy.orm import Session
 from app.asset_images import normalize_image
 from app.auth import get_current_user
 from app.db import get_db
-from app.models import Asset, Draft, Round, RoundInput, RoundSubmission, User
+from app.models import Asset, Draft, HistoryEntry, Round, RoundInput, RoundSubmission, User
 from app.pairing import find_member_connection
 from app.schemas import (
     InboxItem,
     InputAssetResponse,
     DraftResponse,
+    HistoryItem,
     ResultResponse,
     SubmissionResponse,
     RoundCreateRequest,
@@ -159,6 +160,26 @@ def _ensure_mosaic(asset: Asset) -> FilePath:
     except (OSError, UnidentifiedImageError):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Result could not be prepared.") from None
     return destination
+
+
+def _history_response(db: Session, entry: HistoryEntry, round_item: Round, submission: RoundSubmission, user_id: str) -> HistoryItem:
+    asset = db.get(Asset, submission.asset_id)
+    if asset is None or asset.state != "ACTIVE" or round_item.revealed_at is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    return HistoryItem(
+        entry_id=entry.id,
+        connection_id=entry.connection_id,
+        round_id=entry.round_id,
+        submission_id=submission.id,
+        is_mine=submission.editor_id == user_id,
+        content_type=asset.content_type,
+        size=asset.size,
+        width=asset.width,
+        height=asset.height,
+        submitted_at=submission.submitted_at,
+        revealed_at=round_item.revealed_at,
+        url=f"/connections/{entry.connection_id}/history/{entry.id}/content",
+    )
 
 
 def _parse_draft_document(document_json: str) -> dict:
@@ -672,6 +693,76 @@ def download_result(
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/connections/{connection_id}/history", response_model=list[HistoryItem])
+def list_history(
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[HistoryItem]:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    rounds = db.scalars(
+        select(Round)
+        .where(Round.connection_id == connection_id, Round.status == "REVEALED")
+        .order_by(Round.revealed_at.desc())
+    ).all()
+    result: list[HistoryItem] = []
+    for round_item in rounds:
+        submissions = db.scalars(
+            select(RoundSubmission).where(RoundSubmission.round_id == round_item.id)
+        ).all()
+        for submission in submissions:
+            entry = db.scalar(
+                select(HistoryEntry).where(
+                    HistoryEntry.viewer_id == user.id,
+                    HistoryEntry.submission_id == submission.id,
+                )
+            )
+            if entry is None:
+                entry = HistoryEntry(
+                    connection_id=connection_id,
+                    round_id=round_item.id,
+                    submission_id=submission.id,
+                    viewer_id=user.id,
+                )
+                db.add(entry)
+                db.flush()
+            if entry.status == "ACTIVE":
+                result.append(_history_response(db, entry, round_item, submission, user.id))
+    db.commit()
+    return result
+
+
+@router.get("/connections/{connection_id}/history/{entry_id}/content", response_class=FileResponse)
+def download_history_item(
+    connection_id: str = Path(min_length=32, max_length=32),
+    entry_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    entry = db.scalar(
+        select(HistoryEntry).where(
+            HistoryEntry.id == entry_id,
+            HistoryEntry.connection_id == connection_id,
+            HistoryEntry.viewer_id == user.id,
+            HistoryEntry.status == "ACTIVE",
+        )
+    )
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    round_item = db.get(Round, entry.round_id)
+    submission = db.get(RoundSubmission, entry.submission_id)
+    asset = db.get(Asset, submission.asset_id) if submission else None
+    if round_item is None or round_item.status != "REVEALED" or asset is None or asset.state != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    path = FilePath(asset.storage_path)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    return FileResponse(path, media_type=asset.content_type, headers={"Cache-Control": "private, no-store"})
 
 
 @router.delete("/rounds/{round_id}/draft", status_code=status.HTTP_204_NO_CONTENT)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, router as auth_router
 from app.db import check_db, get_db, init_db
+from app.entitlement_api import router as entitlement_router
 from app.invite_api import router as invite_router
 from app.round_api import router as round_router
 from app.models import Photo, PhotoVariant, User
@@ -45,6 +46,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(invite_router)
 app.include_router(round_router)
+app.include_router(entitlement_router)
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

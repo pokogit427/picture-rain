@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteHistory, disconnectConnection, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
+import { deleteHistory, disconnectConnection, getEntitlements, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -191,6 +191,25 @@ describe("API client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/connections/connection-1",
       expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
+  });
+
+  it("reads the free-only entitlement boundary", async () => {
+    const entitlement = {
+      plan_code: "FREE",
+      plan_status: "PREVIEW",
+      billing_enabled: false,
+      daily_rounds_per_connection: 3,
+      total_rounds_per_account: 30,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(entitlement), { status: 200 }),
+    );
+
+    await expect(getEntitlements()).resolves.toEqual(entitlement);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/entitlements",
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 });

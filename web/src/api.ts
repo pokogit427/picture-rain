@@ -22,6 +22,14 @@ export interface UserSummary {
   created_at: string;
 }
 
+export interface EntitlementSummary {
+  plan_code: string;
+  plan_status: string;
+  billing_enabled: boolean;
+  daily_rounds_per_connection: number;
+  total_rounds_per_account: number;
+}
+
 export interface InviteSummary {
   code: string;
   expires_at: string;
@@ -162,6 +170,10 @@ export function getPhotos(): Promise<PhotoSummary[]> {
 
 export function getMe(): Promise<UserSummary> {
   return request<UserSummary>("/auth/me");
+}
+
+export function getEntitlements(): Promise<EntitlementSummary> {
+  return request<EntitlementSummary>("/entitlements");
 }
 
 export function register(credentials: AuthCredentials): Promise<UserSummary> {

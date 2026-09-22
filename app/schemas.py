@@ -22,6 +22,14 @@ class UserResponse(BaseModel):
     created_at: datetime
 
 
+class EntitlementResponse(BaseModel):
+    plan_code: str
+    plan_status: str
+    billing_enabled: bool
+    daily_rounds_per_connection: int
+    total_rounds_per_account: int
+
+
 class InviteResponse(BaseModel):
     code: str
     expires_at: datetime

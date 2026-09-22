@@ -75,6 +75,18 @@ export interface SubmissionResponse {
   submitted_at: string;
 }
 
+export interface ResultSummary {
+  submission_id: string;
+  is_mine: boolean;
+  visibility: "MOSAIC" | "ORIGINAL";
+  content_type: string;
+  size: number;
+  width: number;
+  height: number;
+  submitted_at: string;
+  url: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -217,4 +229,8 @@ export function cancelDraft(roundId: string): Promise<void> {
 
 export function submitRound(roundId: string): Promise<SubmissionResponse> {
   return request<SubmissionResponse>(`/rounds/${roundId}/submit`, { method: "POST" });
+}
+
+export function getResults(roundId: string): Promise<ResultSummary[]> {
+  return request<ResultSummary[]>(`/rounds/${roundId}/results`);
 }

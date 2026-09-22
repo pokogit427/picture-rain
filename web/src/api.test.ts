@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getMe, getPhotos, saveDraft, submitRound } from "./api";
+import { getHealth, getMe, getPhotos, getResults, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -119,6 +119,29 @@ describe("API client", () => {
     expect(fetch).toHaveBeenCalledWith(
       "/api/rounds/round-1/submit",
       expect.objectContaining({ method: "POST", credentials: "include" }),
+    );
+  });
+
+  it("loads result visibility from the server-controlled result route", async () => {
+    const results = [{
+      submission_id: "submission-1",
+      is_mine: false,
+      visibility: "MOSAIC" as const,
+      content_type: "image/png",
+      size: 10,
+      width: 1,
+      height: 1,
+      submitted_at: "now",
+      url: "/rounds/round-1/results/submission-1/content",
+    }];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(results), { status: 200 }),
+    );
+
+    await expect(getResults("round-1")).resolves.toEqual(results);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/rounds/round-1/results",
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 });

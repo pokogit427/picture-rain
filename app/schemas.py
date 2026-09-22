@@ -89,6 +89,18 @@ class SubmissionResponse(BaseModel):
     submitted_at: datetime
 
 
+class ResultResponse(BaseModel):
+    submission_id: str
+    is_mine: bool
+    visibility: str
+    content_type: str
+    size: int
+    width: int
+    height: int
+    submitted_at: datetime
+    url: str
+
+
 class InboxItem(BaseModel):
     round_id: str
     connection_id: str

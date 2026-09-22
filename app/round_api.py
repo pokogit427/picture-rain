@@ -1,10 +1,12 @@
 import json
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path as FilePath
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile, status
 from fastapi.responses import FileResponse
+from PIL import Image, ImageFilter, UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,13 +20,14 @@ from app.schemas import (
     InboxItem,
     InputAssetResponse,
     DraftResponse,
+    ResultResponse,
     SubmissionResponse,
     RoundCreateRequest,
     RoundDetail,
     RoundInputRequest,
     RoundSummary,
 )
-from app.storage import MAX_UPLOAD_BYTES, asset_path
+from app.storage import MAX_UPLOAD_BYTES, asset_path, mosaic_path
 
 router = APIRouter(tags=["rounds"])
 ROUND_TTL = timedelta(hours=24)
@@ -118,6 +121,44 @@ def _existing_submission(db: Session, round_id: str, user_id: str) -> RoundSubmi
             RoundSubmission.editor_id == user_id,
         )
     )
+
+
+def _result_response(round_item: Round, submission: RoundSubmission, user_id: str, db: Session) -> ResultResponse:
+    asset = db.get(Asset, submission.asset_id)
+    if asset is None or asset.state != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    visibility = "ORIGINAL" if round_item.status == "REVEALED" else "MOSAIC"
+    return ResultResponse(
+        submission_id=submission.id,
+        is_mine=submission.editor_id == user_id,
+        visibility=visibility,
+        content_type=asset.content_type,
+        size=asset.size,
+        width=asset.width,
+        height=asset.height,
+        submitted_at=submission.submitted_at,
+        url=f"/rounds/{round_item.id}/results/{submission.id}/content",
+    )
+
+
+def _ensure_mosaic(asset: Asset) -> FilePath:
+    source = FilePath(asset.storage_path)
+    if not source.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    destination = mosaic_path(asset.id)
+    if destination.is_file():
+        return destination
+    try:
+        with Image.open(source) as original:
+            image = original.convert("RGB")
+            image.thumbnail((32, 32), Image.Resampling.LANCZOS)
+            image = image.resize((max(image.width * 8, 128), max(image.height * 8, 128)), Image.Resampling.NEAREST)
+            image = image.filter(ImageFilter.GaussianBlur(radius=5))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            image.save(destination, format="WEBP", quality=45, method=4)
+    except (OSError, UnidentifiedImageError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Result could not be prepared.") from None
+    return destination
 
 
 def _parse_draft_document(document_json: str) -> dict:
@@ -573,6 +614,51 @@ def submit_round(
     return _submission_response(db, submission)
 
 
+@router.get("/rounds/{round_id}/results", response_model=list[ResultResponse])
+def list_results(
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ResultResponse]:
+    round_item = _load_member_round(db, round_id, user.id)
+    submissions = db.scalars(
+        select(RoundSubmission)
+        .where(RoundSubmission.round_id == round_id)
+        .order_by(RoundSubmission.submitted_at.asc())
+    ).all()
+    return [_result_response(round_item, submission, user.id, db) for submission in submissions]
+
+
+@router.get("/rounds/{round_id}/results/{submission_id}/content", response_class=FileResponse)
+def download_result(
+    round_id: str = Path(min_length=32, max_length=32),
+    submission_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    round_item = _load_member_round(db, round_id, user.id)
+    submission = db.scalar(
+        select(RoundSubmission).where(
+            RoundSubmission.id == submission_id,
+            RoundSubmission.round_id == round_id,
+        )
+    )
+    if submission is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    asset = db.get(Asset, submission.asset_id)
+    if asset is None or asset.state != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    if round_item.status == "REVEALED":
+        path = FilePath(asset.storage_path)
+        media_type = asset.content_type
+    else:
+        path = _ensure_mosaic(asset)
+        media_type = "image/webp"
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, no-store"})
+
+
 @router.delete("/rounds/{round_id}/draft", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_draft(
     round_id: str = Path(min_length=32, max_length=32),
@@ -652,7 +738,9 @@ def download_asset(
     round_item = db.get(Round, asset.round_id)
     if round_item is None or find_member_connection(db, asset.connection_id, user.id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
-    if asset.kind in {"INSERT", "DRAFT_PREVIEW", "SUBMISSION"} and asset.owner_id != user.id:
+    if asset.kind == "SUBMISSION" and round_item.status != "REVEALED":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.kind in {"INSERT", "DRAFT_PREVIEW"} and asset.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     path = asset.storage_path
     if not path or not FilePath(path).is_file():

@@ -63,3 +63,8 @@ def asset_path(asset_id: str, content_type: str) -> Path:
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise ValueError("Unsupported asset content type")
     return ASSET_DIR / f"{normalized_id}{ALLOWED_CONTENT_TYPES[content_type]}"
+
+
+def mosaic_path(asset_id: str) -> Path:
+    normalized_id = _validate_photo_id(asset_id)
+    return ASSET_DIR / f"{normalized_id}.mosaic.webp"

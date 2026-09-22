@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, init_db
-from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundInput, RoundSubmission
+from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundInput, RoundSubmission, UsageCharge
 from app.storage import asset_path, mosaic_path
 
 
@@ -162,6 +162,7 @@ def cleanup_expired_data(db: Session, now: datetime | None = None) -> dict[str, 
             db.execute(delete(Draft).where(Draft.round_id.in_(round_ids)))
             db.execute(delete(RoundInput).where(RoundInput.round_id.in_(round_ids)))
             db.execute(delete(RoundSubmission).where(RoundSubmission.round_id.in_(round_ids)))
+            db.execute(delete(UsageCharge).where(UsageCharge.round_id.in_(round_ids)))
         db.execute(delete(Asset).where(Asset.connection_id == connection_id))
         db.execute(delete(Round).where(Round.connection_id == connection_id))
         db.execute(delete(Connection).where(Connection.id == connection_id))

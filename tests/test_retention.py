@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import app.retention as retention
 from app.db import Base
-from app.models import Asset, Connection, Draft, Round, RoundSubmission, User
+from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundSubmission, User
 
 
 class RetentionTest(unittest.TestCase):
@@ -94,6 +94,55 @@ class RetentionTest(unittest.TestCase):
             self.assertEqual(db.get(preview.__class__, preview.id).state, "DELETED")
             self.assertEqual(db.get(submission_asset.__class__, submission_asset.id).state, "DELETED")
             self.assertIsNone(db.scalar(select(RoundSubmission).where(RoundSubmission.id == submission.id)))
+
+    def test_trash_purge_preserves_counterpart_then_removes_unreferenced_result(self) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as db:
+            first = User(id="1" * 32, login_identifier="trash-first", status="ACTIVE")
+            second = User(id="2" * 32, login_identifier="trash-second", status="ACTIVE")
+            connection = Connection(id="3" * 32, user_low_id=first.id, user_high_id=second.id, status="ACTIVE")
+            round_item = Round(
+                id="4" * 32, connection_id=connection.id, created_by_id=first.id, status="REVEALED",
+                expires_at=now + timedelta(days=1), revealed_at=now,
+            )
+            result_asset = Asset(
+                id="5" * 32, connection_id=connection.id, round_id=round_item.id, owner_id=first.id,
+                kind="SUBMISSION", content_type="image/png", size=1, width=1, height=1, storage_path="result.png",
+            )
+            submission = RoundSubmission(id="6" * 32, round_id=round_item.id, editor_id=first.id, asset_id=result_asset.id)
+            first_entry = HistoryEntry(
+                id="7" * 32, connection_id=connection.id, round_id=round_item.id, submission_id=submission.id,
+                viewer_id=first.id, status="TRASH", deleted_at=now - timedelta(days=31), purge_at=now - timedelta(days=1),
+            )
+            second_entry = HistoryEntry(
+                id="8" * 32, connection_id=connection.id, round_id=round_item.id, submission_id=submission.id,
+                viewer_id=second.id, status="ACTIVE",
+            )
+            db.add_all([first, second, connection, round_item, result_asset, submission, first_entry, second_entry])
+            db.commit()
+            result_path = retention.asset_path(result_asset.id, result_asset.content_type)
+            result_path.write_bytes(b"result")
+
+            first_cleanup = retention.cleanup_expired_data(db, now)
+            self.assertEqual(first_cleanup["purged_history"], 1)
+            self.assertEqual(first_cleanup["deleted_unreferenced_results"], 0)
+            self.assertIsNotNone(db.get(Asset, result_asset.id))
+
+            second_entry = db.get(HistoryEntry, second_entry.id)
+            second_entry.status = "TRASH"
+            second_entry.deleted_at = now - timedelta(days=31)
+            second_entry.purge_at = now - timedelta(days=1)
+            db.commit()
+            second_cleanup = retention.cleanup_expired_data(db, now)
+            self.assertEqual(second_cleanup["purged_history"], 1)
+            self.assertEqual(second_cleanup["deleted_unreferenced_results"], 1)
+            self.assertIsNone(db.get(Asset, result_asset.id))
+            self.assertIsNone(db.get(RoundSubmission, submission.id))
+            self.assertFalse(result_path.exists())
+
+            retry = retention.cleanup_expired_data(db, now)
+            self.assertEqual(retry["purged_history"], 0)
+            self.assertEqual(retry["deleted_unreferenced_results"], 0)
 
 
 if __name__ == "__main__":

@@ -4,11 +4,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, init_db
-from app.models import Asset, Draft, Round, RoundSubmission
+from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundSubmission
 from app.storage import asset_path, mosaic_path
 
 
@@ -41,6 +41,8 @@ def cleanup_expired_data(db: Session, now: datetime | None = None) -> dict[str, 
         "deleted_drafts": 0,
         "deleted_submissions": 0,
         "deleted_assets": 0,
+        "purged_history": 0,
+        "deleted_unreferenced_results": 0,
     }
 
     rounds = db.scalars(select(Round)).all()
@@ -93,6 +95,51 @@ def cleanup_expired_data(db: Session, now: datetime | None = None) -> dict[str, 
         draft.status = "EXPIRED"
         db.delete(draft)
         result["deleted_drafts"] += 1
+
+    purged_by_submission: dict[str, set[str]] = {}
+    trash_entries = db.scalars(
+        select(HistoryEntry).where(HistoryEntry.status.in_(["TRASH", "PURGED"]))
+    ).all()
+    for entry in trash_entries:
+        purged_by_submission.setdefault(entry.submission_id, set()).add(entry.viewer_id)
+        if entry.status == "TRASH":
+            if entry.purge_at is None or not _is_expired(entry.purge_at, current):
+                purged_by_submission[entry.submission_id].discard(entry.viewer_id)
+                if not purged_by_submission[entry.submission_id]:
+                    del purged_by_submission[entry.submission_id]
+                continue
+            entry.status = "PURGED"
+            result["purged_history"] += 1
+
+    db.flush()
+    for submission_id, purged_viewers in purged_by_submission.items():
+        submission = db.get(RoundSubmission, submission_id)
+        if submission is None:
+            continue
+        round_item = db.get(Round, submission.round_id)
+        connection = db.get(Connection, round_item.connection_id) if round_item else None
+        if round_item is None or connection is None:
+            continue
+        remaining_viewers = set(
+            db.scalars(
+                select(HistoryEntry.viewer_id).where(
+                    HistoryEntry.submission_id == submission_id,
+                    HistoryEntry.status.in_(["ACTIVE", "TRASH"]),
+                )
+            ).all()
+        )
+        member_ids = {connection.user_low_id, connection.user_high_id}
+        if remaining_viewers or not member_ids.issubset(remaining_viewers | purged_viewers):
+            continue
+        asset = db.get(Asset, submission.asset_id)
+        if asset is not None:
+            if _queue_asset_delete(asset, paths, deleted_asset_ids):
+                result["deleted_assets"] += 1
+        db.execute(delete(RoundSubmission).where(RoundSubmission.id == submission.id))
+        if asset is not None:
+            db.execute(delete(Asset).where(Asset.id == asset.id))
+        db.execute(delete(HistoryEntry).where(HistoryEntry.submission_id == submission.id))
+        result["deleted_unreferenced_results"] += 1
 
     db.flush()
     db.commit()

@@ -87,6 +87,7 @@ h3 { margin: 0; font-size: 1rem; }
 .draft-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem; margin-top: 0.85rem; }
 .draft-status { color: #85839b; font-size: 0.82rem; }
 .history-list { display: grid; gap: 10px; }
+.history-actions { display: flex; align-items: center; gap: 8px; }
 .history-card { display: flex; align-items: center; gap: 12px; padding: 9px; border: 1px solid #3c385c; border-radius: 12px; background: #171a2d; }
 .history-card img { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; }
 .history-card div { display: grid; gap: 4px; }

@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
 from pathlib import Path as FilePath
 from uuid import uuid4
 
@@ -20,7 +19,9 @@ from app.schemas import (
     InboxItem,
     InputAssetResponse,
     DraftResponse,
+    HistoryDeleteRequest,
     HistoryItem,
+    HistoryTrashItem,
     ResultResponse,
     SubmissionResponse,
     RoundCreateRequest,
@@ -32,6 +33,7 @@ from app.storage import MAX_UPLOAD_BYTES, asset_path, mosaic_path
 
 router = APIRouter(tags=["rounds"])
 ROUND_TTL = timedelta(hours=24)
+TRASH_TTL = timedelta(days=30)
 MAX_DRAFT_DOCUMENT_BYTES = 200_000
 MAX_DRAFT_STROKES = 2_000
 MAX_DRAFT_LAYERS = 40
@@ -179,6 +181,17 @@ def _history_response(db: Session, entry: HistoryEntry, round_item: Round, submi
         submitted_at=submission.submitted_at,
         revealed_at=round_item.revealed_at,
         url=f"/connections/{entry.connection_id}/history/{entry.id}/content",
+    )
+
+
+def _history_trash_response(db: Session, entry: HistoryEntry, round_item: Round, submission: RoundSubmission, user_id: str) -> HistoryTrashItem:
+    if entry.deleted_at is None or entry.purge_at is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trash item not found.")
+    item = _history_response(db, entry, round_item, submission, user_id)
+    return HistoryTrashItem(
+        **item.model_dump(),
+        deleted_at=entry.deleted_at,
+        purge_at=entry.purge_at,
     )
 
 
@@ -684,6 +697,14 @@ def download_result(
     asset = db.get(Asset, submission.asset_id)
     if asset is None or asset.state != "ACTIVE":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    history_entry = db.scalar(
+        select(HistoryEntry).where(
+            HistoryEntry.submission_id == submission.id,
+            HistoryEntry.viewer_id == user.id,
+        )
+    )
+    if history_entry is not None and history_entry.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
     if round_item.status == "REVEALED":
         path = FilePath(asset.storage_path)
         media_type = asset.content_type
@@ -733,6 +754,110 @@ def list_history(
                 result.append(_history_response(db, entry, round_item, submission, user.id))
     db.commit()
     return result
+
+
+@router.post("/connections/{connection_id}/history/delete", response_model=list[str])
+def delete_history(
+    payload: HistoryDeleteRequest,
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[str]:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    target_ids = set(payload.entry_ids)
+    entries = db.scalars(
+        select(HistoryEntry).where(
+            HistoryEntry.id.in_(target_ids),
+            HistoryEntry.connection_id == connection_id,
+            HistoryEntry.viewer_id == user.id,
+            HistoryEntry.status == "ACTIVE",
+        )
+    ).all()
+    if len(entries) != len(target_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more history items were not found.")
+    now = _now()
+    for entry in entries:
+        entry.status = "TRASH"
+        entry.deleted_at = now
+        entry.purge_at = now + TRASH_TTL
+    db.commit()
+    return [entry.id for entry in entries]
+
+
+@router.delete("/connections/{connection_id}/history/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_history_item(
+    connection_id: str = Path(min_length=32, max_length=32),
+    entry_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    delete_history(
+        HistoryDeleteRequest(entry_ids=[entry_id]),
+        connection_id=connection_id,
+        user=user,
+        db=db,
+    )
+
+
+@router.get("/connections/{connection_id}/trash", response_model=list[HistoryTrashItem])
+def list_trash(
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[HistoryTrashItem]:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    entries = db.scalars(
+        select(HistoryEntry)
+        .where(
+            HistoryEntry.connection_id == connection_id,
+            HistoryEntry.viewer_id == user.id,
+            HistoryEntry.status == "TRASH",
+        )
+        .order_by(HistoryEntry.purge_at.asc())
+    ).all()
+    result: list[HistoryTrashItem] = []
+    for entry in entries:
+        if entry.purge_at is None or entry.purge_at <= _now():
+            continue
+        round_item = db.get(Round, entry.round_id)
+        submission = db.get(RoundSubmission, entry.submission_id)
+        if round_item is not None and submission is not None and round_item.status == "REVEALED":
+            result.append(_history_trash_response(db, entry, round_item, submission, user.id))
+    return result
+
+
+@router.post("/connections/{connection_id}/trash/{entry_id}/restore", response_model=HistoryItem)
+def restore_history_item(
+    connection_id: str = Path(min_length=32, max_length=32),
+    entry_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HistoryItem:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    entry = db.scalar(
+        select(HistoryEntry).where(
+            HistoryEntry.id == entry_id,
+            HistoryEntry.connection_id == connection_id,
+            HistoryEntry.viewer_id == user.id,
+            HistoryEntry.status == "TRASH",
+        )
+    )
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trash item not found.")
+    if entry.purge_at is None or entry.purge_at <= _now():
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Trash item can no longer be restored.")
+    round_item = db.get(Round, entry.round_id)
+    submission = db.get(RoundSubmission, entry.submission_id)
+    if round_item is None or submission is None or round_item.status != "REVEALED":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found.")
+    entry.status = "ACTIVE"
+    entry.deleted_at = None
+    entry.purge_at = None
+    db.commit()
+    return _history_response(db, entry, round_item, submission, user.id)
 
 
 @router.get("/connections/{connection_id}/history/{entry_id}/content", response_class=FileResponse)
@@ -846,6 +971,17 @@ def download_asset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     if asset.kind == "SUBMISSION" and round_item.status != "REVEALED":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.kind == "SUBMISSION":
+        history_entry = db.scalar(
+            select(HistoryEntry)
+            .join(RoundSubmission, RoundSubmission.id == HistoryEntry.submission_id)
+            .where(
+                RoundSubmission.asset_id == asset.id,
+                HistoryEntry.viewer_id == user.id,
+            )
+        )
+        if history_entry is not None and history_entry.status != "ACTIVE":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     if asset.kind in {"INSERT", "DRAFT_PREVIEW"} and asset.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     path = asset.storage_path

@@ -116,6 +116,15 @@ class HistoryItem(BaseModel):
     url: str
 
 
+class HistoryTrashItem(HistoryItem):
+    deleted_at: datetime
+    purge_at: datetime
+
+
+class HistoryDeleteRequest(BaseModel):
+    entry_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class InboxItem(BaseModel):
     round_id: str
     connection_id: str

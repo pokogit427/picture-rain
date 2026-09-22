@@ -102,6 +102,11 @@ export interface HistoryItem {
   url: string;
 }
 
+export interface HistoryTrashItem extends HistoryItem {
+  deleted_at: string;
+  purge_at: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -252,4 +257,19 @@ export function getResults(roundId: string): Promise<ResultSummary[]> {
 
 export function getHistory(connectionId: string): Promise<HistoryItem[]> {
   return request<HistoryItem[]>(`/connections/${connectionId}/history`);
+}
+
+export function deleteHistory(connectionId: string, entryIds: string[]): Promise<string[]> {
+  return request<string[]>(`/connections/${connectionId}/history/delete`, {
+    method: "POST",
+    body: JSON.stringify({ entry_ids: entryIds }),
+  });
+}
+
+export function getTrash(connectionId: string): Promise<HistoryTrashItem[]> {
+  return request<HistoryTrashItem[]>(`/connections/${connectionId}/trash`);
+}
+
+export function restoreHistory(connectionId: string, entryId: string): Promise<HistoryItem> {
+  return request<HistoryItem>(`/connections/${connectionId}/trash/${entryId}/restore`, { method: "POST" });
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getHistory, getMe, getPhotos, getResults, saveDraft, submitRound } from "./api";
+import { deleteHistory, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -169,5 +169,18 @@ describe("API client", () => {
       "/api/connections/connection-1/history",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("moves selected history to trash and restores it through explicit endpoints", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(["entry-1"]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ entry_id: "entry-1" }), { status: 200 }));
+
+    await expect(deleteHistory("connection-1", ["entry-1"])).resolves.toEqual(["entry-1"]);
+    await expect(getTrash("connection-1")).resolves.toEqual([]);
+    await expect(restoreHistory("connection-1", "entry-1")).resolves.toMatchObject({ entry_id: "entry-1" });
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: "POST" }));
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/connections/connection-1/trash/entry-1/restore");
   });
 });

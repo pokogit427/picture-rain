@@ -136,6 +136,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [activeStroke, setActiveStroke] = useState<Stroke | null>(null);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [textValue, setTextValue] = useState("");
+  const [customEmoji, setCustomEmoji] = useState("");
   const [rotation, setRotation] = useState(0);
   const [brightness, setBrightness] = useState(100);
   const [cropSquare, setCropSquare] = useState(false);
@@ -262,6 +263,16 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     setMode("select");
   }
 
+  function addCustomEmoji() {
+    const emoji = customEmoji.trim();
+    if (!emoji || Array.from(emoji).length > 12) return;
+    const layer = newLayer("sticker", emoji);
+    commitLayers([...layers, layer]);
+    setSelectedLayerId(layer.id);
+    setCustomEmoji("");
+    setMode("select");
+  }
+
   function updateSelected(changes: Partial<EditorLayer>) {
     if (!selectedLayerId) return;
     commitLayers(layers.map((layer) => layer.id === selectedLayerId ? { ...layer, ...changes } : layer));
@@ -310,6 +321,8 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       <div className="layer-toolbar">
         <span>스티커</span>
         {STICKERS.map((sticker) => <button className="sticker-button" key={sticker} onClick={() => addSticker(sticker)} type="button">{sticker}</button>)}
+        <input aria-label="커스텀 이모지" maxLength={12} onChange={(event) => setCustomEmoji(event.target.value)} placeholder="커스텀 이모지" value={customEmoji} />
+        <button className="tool-button" disabled={!customEmoji.trim() || Array.from(customEmoji.trim()).length > 12} onClick={addCustomEmoji} type="button">이모지 추가</button>
         <input aria-label="텍스트 레이어" maxLength={40} onChange={(event) => setTextValue(event.target.value)} placeholder="텍스트" value={textValue} />
         <button className="tool-button" disabled={!textValue.trim()} onClick={addText} type="button">텍스트 추가</button>
       </div>

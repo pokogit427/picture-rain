@@ -1,0 +1,9 @@
+{
+  "name": "Picture Rain",
+  "short_name": "Picture Rain",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1425",
+  "theme_color": "#12182b"
+}

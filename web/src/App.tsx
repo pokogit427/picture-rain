@@ -13,6 +13,7 @@ import { AdPlaceholder } from "./components/AdPlaceholder";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { NetworkStatus } from "./components/NetworkStatus";
 import "./styles.css";
 
 type LoadState = "loading" | "ready" | "error";
@@ -58,7 +59,15 @@ function App() {
     await logout();
     setUser(null);
     setPhotos([]);
+    setHealthState("loading");
+    setPhotoState("loading");
     setSessionState("anonymous");
+  }
+
+  async function retryDashboard() {
+    setHealthState("loading");
+    setPhotoState("loading");
+    await loadDashboard(setHealthState, setPhotoState, setPhotos);
   }
 
   if (sessionState === "checking") {
@@ -73,6 +82,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <NetworkStatus />
       <header className="topbar">
         <div>
           <p className="eyebrow">PICTURE RAIN</p>
@@ -128,6 +138,15 @@ function App() {
             />
           </article>
         </section>
+
+        {(healthState === "error" || photoState === "error") && (
+          <div className="recovery-actions">
+            <p>일부 정보를 불러오지 못했어요. 연결을 확인하고 다시 시도해주세요.</p>
+            <button className="secondary-button" onClick={() => void retryDashboard()} type="button">
+              다시 불러오기
+            </button>
+          </div>
+        )}
 
         <section className="content-grid">
           <ConnectionPanel />

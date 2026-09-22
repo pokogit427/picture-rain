@@ -164,6 +164,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [uploadingLayer, setUploadingLayer] = useState(false);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [imageVersion, setImageVersion] = useState(0);
+  const [imageAttempt, setImageAttempt] = useState(0);
   const [rotation, setRotation] = useState(0);
   const [brightness, setBrightness] = useState(100);
   const [cropSquare, setCropSquare] = useState(false);
@@ -247,7 +248,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       image.onload = null;
       image.onerror = null;
     };
-  }, [item]);
+  }, [item, imageAttempt]);
 
   useEffect(() => {
     if (suppressDirtyRef.current) {
@@ -527,7 +528,12 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
         </label>
       </div>
       {layerError && <p className="inline-message auth-error">{layerError}</p>}
-      {draftError && <p className="inline-message auth-error">{draftError}</p>}
+      {draftError && (
+        <div className="recovery-actions editor-recovery">
+          <p className="inline-message auth-error">{draftError}</p>
+          <button className="tool-button" disabled={draftState === "saving" || imageState !== "ready"} onClick={() => void saveCurrentDraft()} type="button">초안 다시 저장</button>
+        </div>
+      )}
       {selectedLayer && (
         <div className="layer-controls">
           <label>크기 <input max="0.3" min="0.03" onChange={(event) => updateSelected({ scale: Number(event.target.value) })} step="0.005" type="range" value={selectedLayer.scale} /></label>
@@ -543,8 +549,13 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       </div>
       <div className="canvas-stage">
         {imageState === "loading" && <p className="canvas-message">사진을 준비하고 있어요…</p>}
-        {imageState === "error" && <p className="canvas-message error">사진을 불러오지 못했어요.</p>}
-        <canvas aria-label="편집 대상 사진" className={imageState === "ready" ? "editor-canvas visible" : "editor-canvas"} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={finishPointer} onPointerCancel={finishPointer} ref={canvasRef} />
+        {imageState === "error" && (
+          <div className="canvas-message error">
+            <p>사진을 불러오지 못했어요.</p>
+            <button className="tool-button" onClick={() => { setImageState("loading"); setImageAttempt((value) => value + 1); }} type="button">다시 시도</button>
+          </div>
+        )}
+        <canvas aria-label="편집 대상 사진" className={imageState === "ready" ? "editor-canvas visible" : "editor-canvas"} onLostPointerCapture={finishPointer} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={finishPointer} onPointerCancel={finishPointer} ref={canvasRef} />
       </div>
       <label className="zoom-control" htmlFor="editor-zoom"><span>확대/축소</span><input id="editor-zoom" max="2" min="0.75" onChange={(event) => setZoom(Number(event.target.value))} step="0.05" type="range" value={zoom} /><output>{Math.round(zoom * 100)}%</output></label>
       <div className="draft-controls">

@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, router as auth_router
+from app.ads_api import router as ads_router
 from app.db import check_db, get_db, init_db
 from app.entitlement_api import router as entitlement_router
 from app.invite_api import router as invite_router
@@ -44,6 +45,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(auth_router)
+app.include_router(ads_router)
 app.include_router(invite_router)
 app.include_router(round_router)
 app.include_router(entitlement_router)

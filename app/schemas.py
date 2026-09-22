@@ -38,6 +38,14 @@ class UsageResponse(BaseModel):
     account_limit: int
 
 
+class AdSlotResponse(BaseModel):
+    slot: str
+    mode: str
+    enabled: bool
+    label: str | None
+    click_url: str | None
+
+
 class InviteResponse(BaseModel):
     code: str
     expires_at: datetime

@@ -9,6 +9,7 @@ import {
   type UserSummary,
 } from "./api";
 import { AuthPanel } from "./components/AuthPanel";
+import { AdPlaceholder } from "./components/AdPlaceholder";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -98,6 +99,8 @@ function App() {
           </div>
           <div className="rain-orb" aria-hidden="true">✦</div>
         </section>
+
+        <AdPlaceholder slot="dashboard" />
 
         <section className="status-grid" aria-label="개발 상태">
           <article className="panel status-panel">

@@ -38,6 +38,14 @@ export interface UsageSummary {
   account_limit: number;
 }
 
+export interface AdSlotSummary {
+  slot: string;
+  mode: "OFF" | "MOCK";
+  enabled: boolean;
+  label: string | null;
+  click_url: string | null;
+}
+
 export interface InviteSummary {
   code: string;
   expires_at: string;
@@ -186,6 +194,11 @@ export function getEntitlements(): Promise<EntitlementSummary> {
 
 export function getUsage(connectionId: string): Promise<UsageSummary> {
   return request<UsageSummary>(`/connections/${connectionId}/usage`);
+}
+
+export function getAdSlots(slot?: string): Promise<AdSlotSummary[]> {
+  const query = slot ? `?slot=${encodeURIComponent(slot)}` : "";
+  return request<AdSlotSummary[]>(`/ads/slots${query}`);
 }
 
 export function register(credentials: AuthCredentials): Promise<UserSummary> {

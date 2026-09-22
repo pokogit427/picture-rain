@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteHistory, disconnectConnection, getEntitlements, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, getUsage, restoreHistory, saveDraft, submitRound } from "./api";
+import { deleteHistory, disconnectConnection, getAdSlots, getEntitlements, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, getUsage, restoreHistory, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -228,6 +228,25 @@ describe("API client", () => {
     await expect(getUsage("connection-1")).resolves.toEqual(usage);
     expect(fetch).toHaveBeenCalledWith(
       "/api/connections/connection-1/usage",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("loads only the selected ad slot policy", async () => {
+    const slots = [{
+      slot: "dashboard",
+      mode: "OFF" as const,
+      enabled: false,
+      label: null,
+      click_url: null,
+    }];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(slots), { status: 200 }),
+    );
+
+    await expect(getAdSlots("dashboard")).resolves.toEqual(slots);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/ads/slots?slot=dashboard",
       expect.objectContaining({ credentials: "include" }),
     );
   });

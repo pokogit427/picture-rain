@@ -1,26 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { getAssetUrl, type InboxItem } from "../api";
 
 type Point = { x: number; y: number };
 type Stroke = { points: Point[]; color: string; width: number };
-type ToolMode = "brush" | "eraser";
+type ToolMode = "select" | "brush" | "eraser";
+type EditorLayer = {
+  id: string;
+  kind: "sticker" | "text";
+  value: string;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  color: string;
+};
+type EditorSnapshot = { strokes: Stroke[]; layers: EditorLayer[] };
 
 interface EditorCanvasProps {
   item: InboxItem;
 }
 
 const BRUSH_COLOR = "#ffde8a";
+const STICKERS = ["😂", "❤️", "✨", "🐶", "😎"];
 
 function drawScene(
   canvas: HTMLCanvasElement,
   image: HTMLImageElement,
   zoom: number,
   strokes: Stroke[],
+  layers: EditorLayer[],
   activeStroke: Stroke | null,
+  selectedLayerId: string | null,
 ) {
-  const maxWidth = 960;
-  const maxHeight = 640;
-  const fitScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+  const fitScale = Math.min(960 / image.naturalWidth, 640 / image.naturalHeight, 1);
   const width = Math.max(1, Math.round(image.naturalWidth * fitScale * zoom));
   const height = Math.max(1, Math.round(image.naturalHeight * fitScale * zoom));
   if (canvas.width !== width || canvas.height !== height) {
@@ -37,14 +49,32 @@ function drawScene(
     if (stroke.points.length < 2) continue;
     context.beginPath();
     context.moveTo(stroke.points[0].x * width, stroke.points[0].y * height);
-    for (const point of stroke.points.slice(1)) {
-      context.lineTo(point.x * width, point.y * height);
-    }
+    for (const point of stroke.points.slice(1)) context.lineTo(point.x * width, point.y * height);
     context.strokeStyle = stroke.color;
     context.lineWidth = stroke.width * Math.min(width, height);
     context.lineCap = "round";
     context.lineJoin = "round";
     context.stroke();
+  }
+  for (const layer of layers) {
+    const size = layer.scale * Math.min(width, height);
+    context.save();
+    context.translate(layer.x * width, layer.y * height);
+    context.rotate((layer.rotation * Math.PI) / 180);
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `${size}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+    context.fillStyle = layer.color;
+    context.fillText(layer.value, 0, 0);
+    if (layer.id === selectedLayerId) {
+      const bounds = context.measureText(layer.value);
+      context.strokeStyle = "#b9a8ff";
+      context.lineWidth = 2;
+      context.setLineDash([5, 4]);
+      context.strokeRect(-bounds.width / 2 - 8, -size / 2 - 8, bounds.width + 16, size + 16);
+      context.setLineDash([]);
+    }
+    context.restore();
   }
 }
 
@@ -52,17 +82,36 @@ function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function newLayer(kind: EditorLayer["kind"], value: string): EditorLayer {
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    value,
+    x: 0.5,
+    y: 0.5,
+    scale: kind === "text" ? 0.055 : 0.12,
+    rotation: 0,
+    color: kind === "text" ? "#ffffff" : "#ffffff",
+  };
+}
+
 export function EditorCanvas({ item }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ id: string; offset: Point; start: EditorSnapshot } | null>(null);
+  const eraseBaseRef = useRef<Stroke[] | null>(null);
   const [zoom, setZoom] = useState(1);
   const [imageState, setImageState] = useState<"loading" | "ready" | "error">("loading");
-  const [mode, setMode] = useState<ToolMode>("brush");
-  const [past, setPast] = useState<Stroke[][]>([]);
+  const [mode, setMode] = useState<ToolMode>("select");
+  const [past, setPast] = useState<EditorSnapshot[]>([]);
   const [present, setPresent] = useState<Stroke[]>([]);
-  const [future, setFuture] = useState<Stroke[][]>([]);
+  const [layers, setLayers] = useState<EditorLayer[]>([]);
+  const [future, setFuture] = useState<EditorSnapshot[]>([]);
   const [activeStroke, setActiveStroke] = useState<Stroke | null>(null);
-  const eraseBaseRef = useRef<Stroke[] | null>(null);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [textValue, setTextValue] = useState("");
+
+  const currentSnapshot = (): EditorSnapshot => ({ strokes: present, layers });
 
   useEffect(() => {
     const image = new Image();
@@ -70,8 +119,10 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     image.onload = () => {
       imageRef.current = image;
       setPresent([]);
+      setLayers([]);
       setPast([]);
       setFuture([]);
+      setSelectedLayerId(null);
       setImageState("ready");
     };
     image.onerror = () => setImageState("error");
@@ -80,11 +131,11 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
 
   useEffect(() => {
     if (imageRef.current && canvasRef.current) {
-      drawScene(canvasRef.current, imageRef.current, zoom, present, activeStroke);
+      drawScene(canvasRef.current, imageRef.current, zoom, present, layers, activeStroke, selectedLayerId);
     }
-  }, [zoom, present, activeStroke]);
+  }, [zoom, present, layers, activeStroke, selectedLayerId]);
 
-  function pointFromEvent(event: React.PointerEvent<HTMLCanvasElement>): Point {
+  function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const bounds = canvas.getBoundingClientRect();
@@ -94,10 +145,20 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     };
   }
 
-  function handlePointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
+  function findLayer(point: Point): EditorLayer | undefined {
+    return [...layers].reverse().find((layer) => distance({ x: layer.x, y: layer.y }, point) < Math.max(0.08, layer.scale * 1.4));
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (imageState !== "ready") return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = pointFromEvent(event);
+    if (mode === "select") {
+      const layer = findLayer(point);
+      setSelectedLayerId(layer?.id ?? null);
+      if (layer) dragRef.current = { id: layer.id, offset: { x: point.x - layer.x, y: point.y - layer.y }, start: currentSnapshot() };
+      return;
+    }
     if (mode === "eraser") {
       eraseBaseRef.current = present;
       return;
@@ -106,14 +167,20 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     setActiveStroke({ points: [point], color: BRUSH_COLOR, width: 0.012 });
   }
 
-  function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+  function handlePointerMove(event: PointerEvent<HTMLCanvasElement>) {
     const point = pointFromEvent(event);
+    if (mode === "select" && dragRef.current) {
+      const drag = dragRef.current;
+      setLayers((current) => current.map((layer) => layer.id === drag.id ? { ...layer, x: point.x - drag.offset.x, y: point.y - drag.offset.y } : layer));
+      return;
+    }
     if (mode === "eraser") {
       if (!eraseBaseRef.current) return;
       setPresent((current) => {
         const filtered = current.filter((stroke) => !stroke.points.some((candidate) => distance(candidate, point) < 0.045));
         if (filtered.length !== current.length && eraseBaseRef.current === current) {
-          setPast((history) => [...history, current]);
+          setPast((history) => [...history, { strokes: current, layers }]);
+          setFuture([]);
           eraseBaseRef.current = filtered;
         }
         return filtered;
@@ -123,9 +190,12 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     setActiveStroke((current) => current ? { ...current, points: [...current.points, point] } : current);
   }
 
-  function finishPointer(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+  function finishPointer(event: PointerEvent<HTMLCanvasElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (mode === "select") {
+      if (dragRef.current) setPast((history) => [...history, dragRef.current!.start]);
+      dragRef.current = null;
+      return;
     }
     if (mode === "eraser") {
       eraseBaseRef.current = null;
@@ -133,62 +203,98 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     }
     setActiveStroke((stroke) => {
       if (!stroke || stroke.points.length < 2) return null;
-      setPast((history) => [...history, present]);
+      setPast((history) => [...history, currentSnapshot()]);
       return null;
     });
+  }
+
+  function commitLayers(nextLayers: EditorLayer[]) {
+    setPast((history) => [...history, currentSnapshot()]);
+    setFuture([]);
+    setLayers(nextLayers);
+  }
+
+  function addSticker(value: string) {
+    const layer = newLayer("sticker", value);
+    commitLayers([...layers, layer]);
+    setSelectedLayerId(layer.id);
+    setMode("select");
+  }
+
+  function addText() {
+    if (!textValue.trim()) return;
+    const layer = newLayer("text", textValue.trim().slice(0, 40));
+    commitLayers([...layers, layer]);
+    setSelectedLayerId(layer.id);
+    setTextValue("");
+    setMode("select");
+  }
+
+  function updateSelected(changes: Partial<EditorLayer>) {
+    if (!selectedLayerId) return;
+    commitLayers(layers.map((layer) => layer.id === selectedLayerId ? { ...layer, ...changes } : layer));
+  }
+
+  function deleteSelected() {
+    if (!selectedLayerId) return;
+    commitLayers(layers.filter((layer) => layer.id !== selectedLayerId));
+    setSelectedLayerId(null);
   }
 
   function undo() {
     if (past.length === 0) return;
     const previous = past[past.length - 1];
-    setFuture((history) => [present, ...history]);
-    setPresent(previous);
+    setFuture((history) => [currentSnapshot(), ...history]);
+    setPresent(previous.strokes);
+    setLayers(previous.layers);
     setPast(past.slice(0, -1));
   }
 
   function redo() {
     if (future.length === 0) return;
     const next = future[0];
-    setPast((history) => [...history, present]);
-    setPresent(next);
+    setPast((history) => [...history, currentSnapshot()]);
+    setPresent(next.strokes);
+    setLayers(next.layers);
     setFuture(future.slice(1));
   }
+
+  const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
 
   return (
     <section className="editor-panel" aria-label="사진 편집 캔버스">
       <div className="editor-heading">
-        <div>
-          <p className="eyebrow">EDITOR PREVIEW</p>
-          <h3>편집할 사진</h3>
-        </div>
+        <div><p className="eyebrow">EDITOR PREVIEW</p><h3>편집할 사진</h3></div>
         <span className="editor-size">{item.input.width} × {item.input.height}</span>
       </div>
-      <div className="editor-toolbar" aria-label="그리기 도구">
+      <div className="editor-toolbar" aria-label="편집 도구">
+        <button className={mode === "select" ? "tool-button active" : "tool-button"} onClick={() => setMode("select")} type="button">↖ 선택</button>
         <button className={mode === "brush" ? "tool-button active" : "tool-button"} onClick={() => setMode("brush")} type="button">✎ 그리기</button>
         <button className={mode === "eraser" ? "tool-button active" : "tool-button"} onClick={() => setMode("eraser")} type="button">⌫ 선 지우기</button>
         <span className="tool-spacer" />
         <button className="tool-button" disabled={past.length === 0} onClick={undo} type="button">↶</button>
         <button className="tool-button" disabled={future.length === 0} onClick={redo} type="button">↷</button>
       </div>
+      <div className="layer-toolbar">
+        <span>스티커</span>
+        {STICKERS.map((sticker) => <button className="sticker-button" key={sticker} onClick={() => addSticker(sticker)} type="button">{sticker}</button>)}
+        <input aria-label="텍스트 레이어" maxLength={40} onChange={(event) => setTextValue(event.target.value)} placeholder="텍스트" value={textValue} />
+        <button className="tool-button" disabled={!textValue.trim()} onClick={addText} type="button">텍스트 추가</button>
+      </div>
+      {selectedLayer && (
+        <div className="layer-controls">
+          <label>크기 <input max="0.3" min="0.03" onChange={(event) => updateSelected({ scale: Number(event.target.value) })} step="0.005" type="range" value={selectedLayer.scale} /></label>
+          <label>회전 <input max="180" min="-180" onChange={(event) => updateSelected({ rotation: Number(event.target.value) })} step="1" type="range" value={selectedLayer.rotation} /></label>
+          <button className="tool-button danger-button" onClick={deleteSelected} type="button">삭제</button>
+        </div>
+      )}
       <div className="canvas-stage">
         {imageState === "loading" && <p className="canvas-message">사진을 준비하고 있어요…</p>}
         {imageState === "error" && <p className="canvas-message error">사진을 불러오지 못했어요.</p>}
-        <canvas
-          aria-label="편집 대상 사진"
-          className={imageState === "ready" ? "editor-canvas visible" : "editor-canvas"}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={finishPointer}
-          onPointerCancel={finishPointer}
-          ref={canvasRef}
-        />
+        <canvas aria-label="편집 대상 사진" className={imageState === "ready" ? "editor-canvas visible" : "editor-canvas"} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={finishPointer} onPointerCancel={finishPointer} ref={canvasRef} />
       </div>
-      <label className="zoom-control" htmlFor="editor-zoom">
-        <span>확대/축소</span>
-        <input id="editor-zoom" max="2" min="0.75" onChange={(event) => setZoom(Number(event.target.value))} step="0.05" type="range" value={zoom} />
-        <output>{Math.round(zoom * 100)}%</output>
-      </label>
-      <p className="editor-note">선은 사진 위 레이어로 관리되며 실행 취소·다시 실행과 자기 선 지우기를 지원합니다.</p>
+      <label className="zoom-control" htmlFor="editor-zoom"><span>확대/축소</span><input id="editor-zoom" max="2" min="0.75" onChange={(event) => setZoom(Number(event.target.value))} step="0.05" type="range" value={zoom} /><output>{Math.round(zoom * 100)}%</output></label>
+      <p className="editor-note">레이어를 선택해 이동·크기·회전을 조정하고, 필요하면 삭제할 수 있습니다.</p>
     </section>
   );
 }

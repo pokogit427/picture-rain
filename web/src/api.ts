@@ -30,6 +30,14 @@ export interface EntitlementSummary {
   total_rounds_per_account: number;
 }
 
+export interface UsageSummary {
+  usage_date: string;
+  connection_used: number;
+  connection_limit: number;
+  account_used: number;
+  account_limit: number;
+}
+
 export interface InviteSummary {
   code: string;
   expires_at: string;
@@ -174,6 +182,10 @@ export function getMe(): Promise<UserSummary> {
 
 export function getEntitlements(): Promise<EntitlementSummary> {
   return request<EntitlementSummary>("/entitlements");
+}
+
+export function getUsage(connectionId: string): Promise<UsageSummary> {
+  return request<UsageSummary>(`/connections/${connectionId}/usage`);
 }
 
 export function register(credentials: AuthCredentials): Promise<UserSummary> {

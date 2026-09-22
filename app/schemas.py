@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from typing import Any
 
@@ -28,6 +28,14 @@ class EntitlementResponse(BaseModel):
     billing_enabled: bool
     daily_rounds_per_connection: int
     total_rounds_per_account: int
+
+
+class UsageResponse(BaseModel):
+    usage_date: date
+    connection_used: int
+    connection_limit: int
+    account_used: int
+    account_limit: int
 
 
 class InviteResponse(BaseModel):

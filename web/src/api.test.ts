@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteHistory, disconnectConnection, getEntitlements, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
+import { deleteHistory, disconnectConnection, getEntitlements, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, getUsage, restoreHistory, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -209,6 +209,25 @@ describe("API client", () => {
     await expect(getEntitlements()).resolves.toEqual(entitlement);
     expect(fetch).toHaveBeenCalledWith(
       "/api/entitlements",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("reads usage after the server-side round charge boundary", async () => {
+    const usage = {
+      usage_date: "2026-09-22",
+      connection_used: 2,
+      connection_limit: 3,
+      account_used: 5,
+      account_limit: 30,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(usage), { status: 200 }),
+    );
+
+    await expect(getUsage("connection-1")).resolves.toEqual(usage);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/connections/connection-1/usage",
       expect.objectContaining({ credentials: "include" }),
     );
   });

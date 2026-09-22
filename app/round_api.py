@@ -30,6 +30,7 @@ from app.schemas import (
     RoundSummary,
 )
 from app.storage import MAX_UPLOAD_BYTES, asset_path, mosaic_path
+from app.usage import reserve_round_charge
 
 router = APIRouter(tags=["rounds"])
 ROUND_TTL = timedelta(hours=24)
@@ -284,9 +285,20 @@ async def _create_round_with_upload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
     normalized = await _read_normalized_upload(file)
     now = _now()
-    round_item = Round(connection_id=connection.id, created_by_id=user.id, expires_at=now + ROUND_TTL)
+    round_item = Round(
+        id=uuid4().hex,
+        connection_id=connection.id,
+        created_by_id=user.id,
+        expires_at=now + ROUND_TTL,
+    )
     db.add(round_item)
     db.flush()
+    reserve_round_charge(
+        db,
+        user_id=user.id,
+        connection_id=connection.id,
+        round_id=round_item.id,
+    )
     asset = _store_asset(
         db,
         normalized=normalized,
@@ -339,12 +351,19 @@ def create_round(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
     now = _now()
     round_item = Round(
+        id=uuid4().hex,
         connection_id=connection.id,
         created_by_id=user.id,
         expires_at=now + ROUND_TTL,
     )
     db.add(round_item)
     db.flush()
+    reserve_round_charge(
+        db,
+        user_id=user.id,
+        connection_id=connection.id,
+        round_id=round_item.id,
+    )
     db.add(RoundInput(round_id=round_item.id, sender_id=user.id, asset_id=payload.asset_id))
     try:
         db.commit()

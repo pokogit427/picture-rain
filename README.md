@@ -1,49 +1,45 @@
 # Picture Rain
 
-йЭyш§yЫ§uзвќзD"йЭyш§yЫ§uзвќз\єw^~)Юt»§uзвќз@єw^~)Юt»§uзвќзuєw^~)Юt+§uзвќз\єw^~)ЮvйЭyш§yФ.
+Picture RainмќЂ м»¤н”ЊВ·м№њкµ¬к°Ђ мґ€лЊЂ мЅ”л“њлЎњ м—°кІ°лђњ мѓЃлЊЂм™Ђ м‚¬м§„мќ„ мЈјкі л°›кі , м„њлЎњмќ м‚¬м§„мќ„ кѕёл©° кІ°кіјлҐј н•Ёк» кіµк°њн•лЉ” м„њл№„мЉ¤мћ…л‹€л‹¤.
 
-##+§uзвќз\єw^~)Юt+§uзвќзdєw^~)Юu
+## G03 м™„лЈЊ мѓЃнѓњ
 
-єw^~)ЮvйЭyш§yЬ єw^~)ЮvйЭyш§yЫ§uзвќзXєw^~)ЮvйЭyш§yШ єw^~)ЮvйЭyш§yЫ§uзвќзD"йЭyш§yЫ§uзвќз|"йЭyш§yЫ§uзвќзPєw^~)Юt+§uзвќзdєw^~)Юt+§uзвќзEєw^~)ЮvйЭyш§yФ єw^~)ЮvйЭyш§yЫ§uзвќзiєw^~)ЮvйЭyш§yФ.
+D01~D31 лЎњм»¬ кё°лЉҐ кµ¬н„мќ„ м™„лЈЊн–€мЉµл‹€л‹¤. к°Ѓ л‹Ёмњ„лЉ” кµ¬н„В·кІЂм¦ќВ·м»¤л°‹В·pushлЎњ кё°лЎќлђм—€кі  мµњм‹  м»¤л°‹мќЂ `e07e36d`мћ…л‹€л‹¤.
+
+кµ¬н„ лІ”мњ„:
+
+- м•„мќґл””/л№„л°ЂлІ€нё мќём¦ќкіј 30мќј HttpOnly м„ём…
+- ліµм€мќ лЏ…л¦Ѕм Ѓмќё 1:1 м—°кІ°кіј 4мћђл¦¬В·5л¶„ мґ€лЊЂ мЅ”л“њ
+- м‚¬м§„ кµђн™, мє”лІ„мЉ¤ нЋём§‘, мґ€м•€ м ЂмћҐ, м™„лЈЊ м њм¶њ
+- м–‘мЄЅ м њм¶њ м „ лЄЁмћђмќґнЃ¬, м–‘мЄЅ м њм¶њ н›„ кІ°кіј лЏ™м‹њ кіµк°њ
+- к°њмќё мќґл Ґ м‚­м њВ·30мќј нњґм§Ђн†µ ліµм›ђВ·м—°кІ° н•ґм њ м™„м „ м‚­м њ
+- л¬ґлЈЊ лЄЁмќ м‚¬мљ©лџ‰ кІЅкі„, кё°ліё кєјм§ђ лЄЁмќ кґ‘кі , лЄЁл°”мќј м¤лҐ ліµкµ¬
+
+м‹¤кІ°м њВ·м‹¤кґ‘кі В·мЉ¤н† м–ґ м•±В·кіµк°њ нЃґлќјмљ°л“њ л°°нЏ¬лЉ” м•„м§Ѓ н™њм„±н™”н•м§Ђ м•Љм•мЉµл‹€л‹¤.
+
+## м‹¤н–‰
+
+м‹¤м њ мЅ”л“њ м ЂмћҐм†ЊлЉ” WSL `/home/daks/projects/picture-rain`мћ…л‹€л‹¤.
 
 ```bash
 cd /home/daks/projects/picture-rain
 docker compose up -d --build
-```
-§uзвќзAєw^~)ЮvйЭyш§yР API·DB"йЭyш§yЫ§uзвќзpєw^~)Юt+§uзвќзUєw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt.
-
-```bash
-docker compose ps
 curl http://localhost:8000/health
-curl http://localhost:8000/photos
 ```
-
-йЭyш§yЫ§uзвќзDєw^~)Юt+§uзвќзEєw^~)ЮvйЭyш§yЫ§uзвќзXєw^~)Юt+§uзвќз@єw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt.
 
 ```bash
-curl -F "file=@/path/to/photo.png" http://localhost:8000/photos
-curl -X POST -G -d width=800 -d height=800 -d output_format=webp \
-  http://localhost:8000/photos/<photo-id>/transform
-```
-§uзвќз\єw^~)ЮvйЭyш§yФ єw^~)ЮvйЭyш§yЫ§uзвќзT"йЭyш§yЫ§uзвќзLєw^~)Юt+§uзвќзYєw^~)Юt+§uзвќзUєw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt.
-
-```bash
-docker compose logs -f api
-docker compose logs -f db
+cd /home/daks/projects/picture-rain/web
+npm run test
+npm run build
 ```
 
-йЭyш§yЫ§uзвќзDєw^~)ЮvйЭyш§yЬ єw^~)ЮvйЭyш§yЫ§uзвќз`"йЭyш§yЫ§uзвќзT"йЭyш§yЫ§uзвќзL"йЭyш§yЫ§uзвќзyєw^~)Юt+§uзвќзlєw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt. PostgreSQL+§uзвќзpєw^~)ЮvйЭyш§yР єw^~)ЮvйЭyш§yЫ§uзвќз@"йЭyш§yЫ§uзвќз\єw^~)ЮvйЭyш§yР єw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt.
+## л¬ём„њ
 
-```bash
-docker compose down
-```
+- [м „мІґ мЅ”л“њ кµ¬н„ кіјм •](./CODE_IMPLEMENTATION_PROCESS.md)
+- [м њн’€ кё°м¤Ђ](./PROJECT_BRIEF.md)
+- [м „мІґ нЃґлќјмљ°л“њ кіјм •](./DEVELOPMENT_PLAN.md)
+- [G03 мќёкі„ кё°лЎќ](./HANDOFF.md)
+- [кµ¬н„ н•л„¤мЉ¤](./HARNESS.md)
+- [м»¤л°‹ к·њм№™](./COMMIT_CONVENTION.md)
 
-DBєw^~)ЮvйЭyш§yР єw^~)ЮvйЭyш§yЫ§uзвќзH"йЭyш§yЫ§uзвќзpєw^~)ЮvйЭyш§yР єw^~)ЮvйЭyш§yЬ `-vbйЭyш§yЬ єw^~)ЮvйЭyш§yЫ§uзвќзiєw^~)ЮvйЭyш§yФ.
-
-```bash
-docker compose down -v
-```
-§uзвќзPєw^~)Юt+§uзвќзLєw^~)ЮvйЭyш§yР `data/uploads`,"йЭyш§yЫ§uзвќзXєw^~)ЮvйЭyш§yР `data/processed`, єw^~)ЮvйЭyш§yФ·єw^~)ЮvйЭyш§yШ єw^~)ЮvйЭyш§yЫ§uзвќзpєw^~)ЮvйЭyш§yЫ§uзвќзT PostgreSQL єw^~)ЮvйЭyш§yЫ§uзвќзP"йЭyш§yЫ§uзвќзeєw^~)ЮvйЭyш§yЫ§uзвќзd.
-
-єw^~)ЮvйЭyш§yЬ єw^~)ЮvйЭyш§yЬ єw^~)ЮvйЭyш§yЫ§uзвќзT Linux"йЭyш§yЫ§uзвќзl"йЭyш§yЫ§uзвќзeєw^~)Юt+§uзвќзDєw^~)Юt WSL єw^~)ЮvйЭyш§yР
-`/home/daks/projects/picture-rainbйЭyш§yР єw^~)ЮvйЭyш§yЫ§uзвќзHєw^~)Юt.
+G04 мќґн›„ л‹Ёкі„лЉ” лі„лЏ„ м±„нЊ…м—ђм„њ лІ”мњ„лҐј м •н•њ л’¤ м‹њмћ‘н•©л‹€л‹¤.

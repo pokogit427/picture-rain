@@ -573,6 +573,12 @@ def submit_round(
     db: Session = Depends(get_db),
 ) -> SubmissionResponse:
     round_item = _load_member_round(db, round_id, user.id)
+    locked_round = db.scalar(
+        select(Round).where(Round.id == round_id).with_for_update()
+    )
+    if locked_round is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Round not found.")
+    round_item = locked_round
     existing = _existing_submission(db, round_id, user.id)
     if existing is not None:
         return _submission_response(db, existing)
@@ -604,6 +610,15 @@ def submit_round(
     db.add(submission)
     db.delete(draft)
     try:
+        db.flush()
+        submission_count = db.scalar(
+            select(func.count()).select_from(RoundSubmission).where(
+                RoundSubmission.round_id == round_id,
+            )
+        ) or 0
+        if submission_count >= 2:
+            round_item.status = "REVEALED"
+            round_item.revealed_at = _now()
         db.commit()
     except IntegrityError:
         db.rollback()

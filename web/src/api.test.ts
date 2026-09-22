@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteHistory, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
+import { deleteHistory, disconnectConnection, getHealth, getHistory, getMe, getPhotos, getResults, getTrash, restoreHistory, saveDraft, submitRound } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -182,5 +182,15 @@ describe("API client", () => {
     await expect(restoreHistory("connection-1", "entry-1")).resolves.toMatchObject({ entry_id: "entry-1" });
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: "POST" }));
     expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/connections/connection-1/trash/entry-1/restore");
+  });
+
+  it("disconnects a connection with a server-side delete request", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(disconnectConnection("connection-1")).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/connections/connection-1",
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
   });
 });

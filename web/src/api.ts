@@ -273,3 +273,7 @@ export function getTrash(connectionId: string): Promise<HistoryTrashItem[]> {
 export function restoreHistory(connectionId: string, entryId: string): Promise<HistoryItem> {
   return request<HistoryItem>(`/connections/${connectionId}/trash/${entryId}/restore`, { method: "POST" });
 }
+
+export function disconnectConnection(connectionId: string): Promise<void> {
+  return request<void>(`/connections/${connectionId}`, { method: "DELETE" });
+}

@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -107,6 +107,28 @@ def list_connections(
         )
         for connection in connections
     ]
+
+
+@router.delete("/connections/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect_connection(
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    connection = db.scalar(
+        select(Connection)
+        .where(
+            Connection.id == connection_id,
+            Connection.status == "ACTIVE",
+            or_(Connection.user_low_id == user.id, Connection.user_high_id == user.id),
+        )
+        .with_for_update()
+    )
+    if connection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    connection.status = "DISCONNECTED"
+    connection.disconnected_at = _now()
+    db.commit()
 
 
 @router.get("/invites/current", response_model=InviteResponse)

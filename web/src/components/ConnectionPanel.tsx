@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   acceptInvite,
   ApiError,
+  disconnectConnection,
   getConnections,
   getCurrentInvite,
   issueInvite,
@@ -73,6 +74,22 @@ export function ConnectionPanel() {
     }
   }
 
+  async function disconnect(connection: ConnectionSummary) {
+    if (!window.confirm("이 연결을 해제하면 해당 연결의 사진·이력·초안이 모두 삭제됩니다. 계속할까요?")) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await disconnectConnection(connection.id);
+      setConnections((current) => current.filter((item) => item.id !== connection.id));
+      setMessage("연결을 해제했어요. 관련 데이터는 정리 대기 상태입니다.");
+    } catch (reason: unknown) {
+      setError(reason instanceof ApiError ? reason.message : "연결을 해제하지 못했어요.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <article className="panel connections-panel">
       <div className="section-heading">
@@ -129,6 +146,7 @@ export function ConnectionPanel() {
                 <strong>상대 {connection.partner_user_id.slice(0, 8)}</strong>
                 <small>연결됨 · 사진 교환 준비 중</small>
               </span>
+              <button className="tool-button danger-button" disabled={busy} onClick={() => void disconnect(connection)} type="button">해제</button>
             </li>
           ))}
         </ul>

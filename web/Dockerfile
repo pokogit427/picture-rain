@@ -10,7 +10,7 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
-RUN rm /etc/nginx/conf.d/default.conf && mkdir -p /tmp/nginx/proxy && chown -R nginx:nginx /tmp/nginx
+RUN rm /etc/nginx/conf.d/default.conf && mkdir -p /tmp/nginx/proxy /tmp/nginx/client_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp && chown -R nginx:nginx /tmp/nginx
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf

@@ -86,6 +86,10 @@ h3 { margin: 0; font-size: 1rem; }
 .layer-controls label { display: flex; align-items: center; gap: 7px; }
 .layer-controls input { width: 100px; accent-color: #8066d1; }
 .danger-button { color: #f2aaaa; border-color: #754d62; }
+.adjustment-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid #3c385c; border-radius: 11px; color: #c8c3d7; font-size: 0.72rem; }
+.adjustment-controls label { display: flex; align-items: center; gap: 7px; }
+.adjustment-controls input { width: 100px; accent-color: #8066d1; }
+.adjustment-controls output { min-width: 38px; color: #e3d9ff; font-variant-numeric: tabular-nums; }
 .editor-size { color: #a7a1bf; font-size: 0.75rem; }
 .canvas-stage { display: grid; place-items: center; min-height: 180px; overflow: auto; border: 1px solid #343251; border-radius: 14px; background: #0b0f1d; }
 .editor-canvas { display: none; max-width: 100%; height: auto; touch-action: none; }

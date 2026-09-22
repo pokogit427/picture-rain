@@ -31,10 +31,18 @@ function drawScene(
   layers: EditorLayer[],
   activeStroke: Stroke | null,
   selectedLayerId: string | null,
+  rotation: number,
+  brightness: number,
+  cropSquare: boolean,
 ) {
-  const fitScale = Math.min(960 / image.naturalWidth, 640 / image.naturalHeight, 1);
-  const width = Math.max(1, Math.round(image.naturalWidth * fitScale * zoom));
-  const height = Math.max(1, Math.round(image.naturalHeight * fitScale * zoom));
+  const sourceWidth = cropSquare ? Math.min(image.naturalWidth, image.naturalHeight) : image.naturalWidth;
+  const sourceHeight = cropSquare ? Math.min(image.naturalWidth, image.naturalHeight) : image.naturalHeight;
+  const rotated = Math.abs(rotation % 180) === 90;
+  const baseWidth = rotated ? sourceHeight : sourceWidth;
+  const baseHeight = rotated ? sourceWidth : sourceHeight;
+  const fitScale = Math.min(960 / baseWidth, 640 / baseHeight, 1);
+  const width = Math.max(1, Math.round(baseWidth * fitScale * zoom));
+  const height = Math.max(1, Math.round(baseHeight * fitScale * zoom));
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
@@ -44,7 +52,25 @@ function drawScene(
   context.clearRect(0, 0, width, height);
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
-  context.drawImage(image, 0, 0, width, height);
+  const cropX = cropSquare ? (image.naturalWidth - sourceWidth) / 2 : 0;
+  const cropY = cropSquare ? (image.naturalHeight - sourceHeight) / 2 : 0;
+  context.save();
+  context.translate(width / 2, height / 2);
+  context.rotate((rotation * Math.PI) / 180);
+  context.filter = `brightness(${brightness}%)`;
+  context.drawImage(
+    image,
+    cropX,
+    cropY,
+    sourceWidth,
+    sourceHeight,
+    -sourceWidth * fitScale * zoom / 2,
+    -sourceHeight * fitScale * zoom / 2,
+    sourceWidth * fitScale * zoom,
+    sourceHeight * fitScale * zoom,
+  );
+  context.restore();
+  context.filter = "none";
   for (const stroke of activeStroke ? [...strokes, activeStroke] : strokes) {
     if (stroke.points.length < 2) continue;
     context.beginPath();
@@ -110,6 +136,9 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [activeStroke, setActiveStroke] = useState<Stroke | null>(null);
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [textValue, setTextValue] = useState("");
+  const [rotation, setRotation] = useState(0);
+  const [brightness, setBrightness] = useState(100);
+  const [cropSquare, setCropSquare] = useState(false);
 
   const currentSnapshot = (): EditorSnapshot => ({ strokes: present, layers });
 
@@ -123,6 +152,9 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       setPast([]);
       setFuture([]);
       setSelectedLayerId(null);
+      setRotation(0);
+      setBrightness(100);
+      setCropSquare(false);
       setImageState("ready");
     };
     image.onerror = () => setImageState("error");
@@ -131,9 +163,9 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
 
   useEffect(() => {
     if (imageRef.current && canvasRef.current) {
-      drawScene(canvasRef.current, imageRef.current, zoom, present, layers, activeStroke, selectedLayerId);
+      drawScene(canvasRef.current, imageRef.current, zoom, present, layers, activeStroke, selectedLayerId, rotation, brightness, cropSquare);
     }
-  }, [zoom, present, layers, activeStroke, selectedLayerId]);
+  }, [zoom, present, layers, activeStroke, selectedLayerId, rotation, brightness, cropSquare]);
 
   function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current;
@@ -288,6 +320,12 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
           <button className="tool-button danger-button" onClick={deleteSelected} type="button">삭제</button>
         </div>
       )}
+      <div className="adjustment-controls">
+        <button className="tool-button" onClick={() => setRotation((value) => (value + 90) % 360)} type="button">⟳ 90° 회전</button>
+        <button className={cropSquare ? "tool-button active" : "tool-button"} onClick={() => setCropSquare((value) => !value)} type="button">□ 정사각형 자르기</button>
+        <label>밝기 <input max="150" min="50" onChange={(event) => setBrightness(Number(event.target.value))} step="1" type="range" value={brightness} /></label>
+        <output>{brightness}%</output>
+      </div>
       <div className="canvas-stage">
         {imageState === "loading" && <p className="canvas-message">사진을 준비하고 있어요…</p>}
         {imageState === "error" && <p className="canvas-message error">사진을 불러오지 못했어요.</p>}

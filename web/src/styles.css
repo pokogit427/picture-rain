@@ -64,6 +64,14 @@ h3 { margin: 0; font-size: 1rem; }
 .connection-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 12px; color: #f3dc9b; background: #4b3e62; }
 .connection-list strong, .connection-list small { display: block; }
 .connection-list small { margin-top: 3px; color: #9290a6; font-size: 0.74rem; }
+.inbox-content { display: grid; gap: 14px; }
+.inbox-tabs { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; }
+.inbox-tabs button { flex: 0 0 auto; border: 1px solid #403c5f; border-radius: 9px; padding: 8px 10px; color: #9b97b0; background: transparent; cursor: pointer; font-size: 0.73rem; }
+.inbox-tabs button.active { border-color: #8066d1; color: #fff; background: #403568; }
+.received-photo-card { overflow: hidden; border: 1px solid #3c385c; border-radius: 15px; background: #121629; }
+.received-photo-card img { display: block; width: 100%; max-height: 240px; object-fit: contain; background: #0c1020; }
+.received-photo-card div { display: grid; gap: 4px; padding: 12px; }
+.received-photo-card small { color: #9998ae; font-size: 0.74rem; }
 .footer-note { display: flex; justify-content: space-between; gap: 16px; padding: 30px 0 34px; color: #77758f; font-size: 0.75rem; }
 .auth-layout { display: grid; place-items: center; width: min(100% - 28px, 520px); min-height: 100vh; margin: 0 auto; }
 .auth-card { width: 100%; padding: 38px; border: 1px solid #4e4774; border-radius: 28px; background: linear-gradient(145deg, #28234b, #191c32); box-shadow: 0 22px 80px #05071255; }

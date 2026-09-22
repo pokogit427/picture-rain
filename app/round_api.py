@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path as FilePath
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,7 +13,14 @@ from app.auth import get_current_user
 from app.db import get_db
 from app.models import Asset, Round, RoundInput, User
 from app.pairing import find_member_connection
-from app.schemas import RoundCreateRequest, RoundDetail, RoundInputRequest, RoundSummary
+from app.schemas import (
+    InboxItem,
+    InputAssetResponse,
+    RoundCreateRequest,
+    RoundDetail,
+    RoundInputRequest,
+    RoundSummary,
+)
 from app.storage import MAX_UPLOAD_BYTES, asset_path
 
 router = APIRouter(tags=["rounds"])
@@ -52,6 +61,33 @@ def _load_member_round(db: Session, round_id: str, user_id: str) -> Round:
     if round_item is None or find_member_connection(db, round_item.connection_id, user_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Round not found.")
     return round_item
+
+
+def _asset_response(asset: Asset) -> InputAssetResponse:
+    return InputAssetResponse(
+        id=asset.id,
+        content_type=asset.content_type,
+        size=asset.size,
+        width=asset.width,
+        height=asset.height,
+        created_at=asset.created_at,
+        url=f"/assets/{asset.id}/content",
+    )
+
+
+def _partner_asset(db: Session, round_id: str, user_id: str) -> Asset:
+    input_item = db.scalar(
+        select(RoundInput).where(
+            RoundInput.round_id == round_id,
+            RoundInput.sender_id != user_id,
+        )
+    )
+    if input_item is None or input_item.asset_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Received photo is not ready.")
+    asset = db.get(Asset, input_item.asset_id)
+    if asset is None or asset.state != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Received photo is not ready.")
+    return asset
 
 
 async def _read_normalized_upload(file: UploadFile):
@@ -288,3 +324,69 @@ async def upload_partner_round_input(
             detail="Photo input could not be saved.",
         ) from None
     return _round_response(round_item, _load_inputs(db, round_id), user.id)
+
+
+@router.get("/connections/{connection_id}/inbox", response_model=list[InboxItem])
+def list_inbox(
+    connection_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[InboxItem]:
+    if find_member_connection(db, connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
+    now = _now()
+    rounds = db.scalars(
+        select(Round).where(Round.connection_id == connection_id).order_by(Round.created_at.desc())
+    ).all()
+    result: list[InboxItem] = []
+    for round_item in rounds:
+        _expire_if_needed(round_item, now)
+        try:
+            asset = _partner_asset(db, round_item.id, user.id)
+        except HTTPException:
+            continue
+        result.append(
+            InboxItem(
+                round_id=round_item.id,
+                connection_id=round_item.connection_id,
+                status=round_item.status,
+                created_at=round_item.created_at,
+                expires_at=round_item.expires_at,
+                input=_asset_response(asset),
+            )
+        )
+    db.commit()
+    return result
+
+
+@router.get("/rounds/{round_id}/input", response_model=InputAssetResponse)
+def get_round_input(
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InputAssetResponse:
+    _load_member_round(db, round_id, user.id)
+    return _asset_response(_partner_asset(db, round_id, user.id))
+
+
+@router.get("/assets/{asset_id}/content", response_class=FileResponse)
+def download_asset(
+    asset_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    asset = db.get(Asset, asset_id)
+    if asset is None or asset.state != "ACTIVE" or asset.round_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    round_item = db.get(Round, asset.round_id)
+    if round_item is None or find_member_connection(db, asset.connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    path = asset.storage_path
+    if not path or not FilePath(path).is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    return FileResponse(
+        path,
+        media_type=asset.content_type,
+        filename=f"{asset.id}",
+        headers={"Cache-Control": "private, no-store"},
+    )

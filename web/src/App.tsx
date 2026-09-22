@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { AuthPanel } from "./components/AuthPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
+import { InboxPanel } from "./components/InboxPanel";
 import "./styles.css";
 
 type LoadState = "loading" | "ready" | "error";
@@ -126,6 +127,8 @@ function App() {
 
         <section className="content-grid">
           <ConnectionPanel />
+
+          <InboxPanel />
 
           <article className="panel photos-panel">
             <div className="section-heading">

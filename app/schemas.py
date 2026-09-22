@@ -57,3 +57,22 @@ class RoundSummary(BaseModel):
 class RoundDetail(RoundSummary):
     my_asset_id: str | None
     partner_asset_id: str | None
+
+
+class InputAssetResponse(BaseModel):
+    id: str
+    content_type: str
+    size: int
+    width: int
+    height: int
+    created_at: datetime
+    url: str
+
+
+class InboxItem(BaseModel):
+    round_id: str
+    connection_id: str
+    status: str
+    created_at: datetime
+    expires_at: datetime
+    input: InputAssetResponse

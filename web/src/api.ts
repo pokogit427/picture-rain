@@ -34,6 +34,23 @@ export interface ConnectionSummary {
   created_at: string;
 }
 
+export interface InboxItem {
+  round_id: string;
+  connection_id: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+  input: {
+    id: string;
+    content_type: string;
+    size: number;
+    width: number;
+    height: number;
+    created_at: string;
+    url: string;
+  };
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -126,4 +143,12 @@ export function acceptInvite(invite_code: string): Promise<ConnectionSummary> {
 
 export function issueInvite(): Promise<InviteSummary> {
   return request<InviteSummary>("/invites", { method: "POST" });
+}
+
+export function getInbox(connectionId: string): Promise<InboxItem[]> {
+  return request<InboxItem[]>(`/connections/${connectionId}/inbox`);
+}
+
+export function getAssetUrl(path: string): string {
+  return `${apiBaseUrl}${path}`;
 }

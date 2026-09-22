@@ -29,6 +29,8 @@ describe("web shell", () => {
         body = [];
       } else if (url.endsWith("/invites/current")) {
         body = { code: "1234", expires_at: "later" };
+      } else if (url.includes("/connections/") && url.endsWith("/inbox")) {
+        body = [];
       } else {
         body = [];
       }

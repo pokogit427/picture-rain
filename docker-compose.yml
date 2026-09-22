@@ -46,6 +46,21 @@ services:
       timeout: 5s
       retries: 5
 
+  cleanup:
+    build: .
+    container_name: picture-rain-cleanup
+    command: ["python", "-m", "app.cleanup_worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-picture_rain}:${POSTGRES_PASSWORD:-picture_rain_dev}@db:5432/${POSTGRES_DB:-picture_rain}
+      CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./data/uploads:/app/data/uploads
+      - ./data/processed:/app/data/processed
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   web:
     build:
       context: ./web

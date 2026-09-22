@@ -74,6 +74,11 @@ h3 { margin: 0; font-size: 1rem; }
 .received-photo-card small { color: #9998ae; font-size: 0.74rem; }
 .editor-panel { display: grid; gap: 13px; margin-top: 18px; padding-top: 18px; border-top: 1px solid #343251; }
 .editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.editor-toolbar { display: flex; align-items: center; gap: 6px; }
+.tool-button { border: 1px solid #403c5f; border-radius: 9px; padding: 8px 10px; color: #a7a1bf; background: transparent; cursor: pointer; font-size: 0.72rem; }
+.tool-button.active { border-color: #8066d1; color: #fff; background: #403568; }
+.tool-button:disabled { cursor: not-allowed; opacity: 0.35; }
+.tool-spacer { flex: 1; }
 .editor-size { color: #a7a1bf; font-size: 0.75rem; }
 .canvas-stage { display: grid; place-items: center; min-height: 180px; overflow: auto; border: 1px solid #343251; border-radius: 14px; background: #0b0f1d; }
 .editor-canvas { display: none; max-width: 100%; height: auto; touch-action: none; }

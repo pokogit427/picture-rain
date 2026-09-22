@@ -1,0 +1,100 @@
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+import app.retention as retention
+from app.db import Base
+from app.models import Asset, Connection, Draft, Round, RoundSubmission, User
+
+
+class RetentionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name)
+        retention.asset_path = lambda asset_id, _content_type: root / f"{asset_id}.bin"
+        retention.mosaic_path = lambda asset_id: root / f"{asset_id}.mosaic.webp"
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_released_round_keeps_only_result_asset(self) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as db:
+            first = User(id="1" * 32, login_identifier="first", status="ACTIVE")
+            second = User(id="2" * 32, login_identifier="second", status="ACTIVE")
+            connection = Connection(id="3" * 32, user_low_id=first.id, user_high_id=second.id, status="ACTIVE")
+            round_item = Round(
+                id="4" * 32,
+                connection_id=connection.id,
+                created_by_id=first.id,
+                status="REVEALED",
+                expires_at=now + timedelta(days=1),
+                revealed_at=now,
+            )
+            input_asset = Asset(
+                id="5" * 32, connection_id=connection.id, round_id=round_item.id, owner_id=first.id,
+                kind="INPUT", content_type="image/png", size=1, width=1, height=1, storage_path="input.png",
+            )
+            result_asset = Asset(
+                id="6" * 32, connection_id=connection.id, round_id=round_item.id, owner_id=second.id,
+                kind="SUBMISSION", content_type="image/png", size=1, width=1, height=1, storage_path="result.png",
+            )
+            submission = RoundSubmission(id="7" * 32, round_id=round_item.id, editor_id=second.id, asset_id=result_asset.id)
+            db.add_all([first, second, connection, round_item, input_asset, result_asset, submission])
+            db.commit()
+            input_path = retention.asset_path(input_asset.id, input_asset.content_type)
+            input_path.write_bytes(b"input")
+            retention.mosaic_path(input_asset.id).write_bytes(b"mosaic")
+
+            result = retention.cleanup_expired_data(db, now)
+
+            self.assertEqual(result["deleted_assets"], 1)
+            self.assertEqual(db.get(Asset, input_asset.id).state, "DELETED")
+            self.assertEqual(db.get(Asset, result_asset.id).state, "ACTIVE")
+            self.assertFalse(input_path.exists())
+
+    def test_expired_round_removes_private_submission_and_draft(self) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as db:
+            first = User(id="a" * 32, login_identifier="expired-first", status="ACTIVE")
+            second = User(id="b" * 32, login_identifier="expired-second", status="ACTIVE")
+            connection = Connection(id="c" * 32, user_low_id=first.id, user_high_id=second.id, status="ACTIVE")
+            round_item = Round(
+                id="d" * 32, connection_id=connection.id, created_by_id=first.id, status="OPEN",
+                expires_at=now - timedelta(minutes=1),
+            )
+            preview = Asset(
+                id="e" * 32, connection_id=connection.id, round_id=round_item.id, owner_id=first.id,
+                kind="DRAFT_PREVIEW", content_type="image/png", size=1, width=1, height=1, storage_path="preview.png",
+            )
+            submission_asset = Asset(
+                id="f" * 32, connection_id=connection.id, round_id=round_item.id, owner_id=first.id,
+                kind="SUBMISSION", content_type="image/png", size=1, width=1, height=1, storage_path="private.png",
+            )
+            draft = Draft(
+                id="1" * 31 + "0", round_id=round_item.id, editor_id=first.id, preview_asset_id=preview.id,
+                document_json="{}", expires_at=now - timedelta(minutes=1),
+            )
+            submission = RoundSubmission(id="2" * 32, round_id=round_item.id, editor_id=first.id, asset_id=submission_asset.id)
+            db.add_all([first, second, connection, round_item, preview, submission_asset, draft, submission])
+            db.commit()
+
+            result = retention.cleanup_expired_data(db, now)
+
+            self.assertEqual(result["expired_rounds"], 1)
+            self.assertEqual(result["deleted_drafts"], 1)
+            self.assertEqual(result["deleted_submissions"], 1)
+            self.assertEqual(db.get(round_item.__class__, round_item.id).status, "EXPIRED")
+            self.assertEqual(db.get(preview.__class__, preview.id).state, "DELETED")
+            self.assertEqual(db.get(submission_asset.__class__, submission_asset.id).state, "DELETED")
+            self.assertIsNone(db.scalar(select(RoundSubmission).where(RoundSubmission.id == submission.id)))
+
+
+if __name__ == "__main__":
+    unittest.main()

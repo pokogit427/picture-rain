@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { getAssetUrl, type InboxItem } from "../api";
+import { getAssetUrl, uploadLayer, type InboxItem } from "../api";
 
 type Point = { x: number; y: number };
 type Stroke = { points: Point[]; color: string; width: number };
 type ToolMode = "select" | "brush" | "eraser";
 type EditorLayer = {
   id: string;
-  kind: "sticker" | "text";
+  kind: "sticker" | "text" | "image";
   value: string;
   x: number;
   y: number;
   scale: number;
   rotation: number;
   color: string;
+  assetUrl?: string;
 };
 type EditorSnapshot = { strokes: Stroke[]; layers: EditorLayer[] };
 
@@ -31,6 +32,7 @@ function drawScene(
   layers: EditorLayer[],
   activeStroke: Stroke | null,
   selectedLayerId: string | null,
+  imageLayers: Map<string, HTMLImageElement>,
   rotation: number,
   brightness: number,
   cropSquare: boolean,
@@ -87,17 +89,30 @@ function drawScene(
     context.save();
     context.translate(layer.x * width, layer.y * height);
     context.rotate((layer.rotation * Math.PI) / 180);
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.font = `${size}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
-    context.fillStyle = layer.color;
-    context.fillText(layer.value, 0, 0);
-    if (layer.id === selectedLayerId) {
+    let boxWidth = size;
+    let boxHeight = size;
+    if (layer.kind === "image") {
+      const layerImage = imageLayers.get(layer.id);
+      if (layerImage) {
+        const ratio = layerImage.naturalWidth / layerImage.naturalHeight;
+        boxWidth = ratio >= 1 ? size : size * ratio;
+        boxHeight = ratio >= 1 ? size / ratio : size;
+        context.drawImage(layerImage, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+      }
+    } else {
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.font = `${size}px "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+      context.fillStyle = layer.color;
+      context.fillText(layer.value, 0, 0);
       const bounds = context.measureText(layer.value);
+      boxWidth = bounds.width;
+    }
+    if (layer.id === selectedLayerId) {
       context.strokeStyle = "#b9a8ff";
       context.lineWidth = 2;
       context.setLineDash([5, 4]);
-      context.strokeRect(-bounds.width / 2 - 8, -size / 2 - 8, bounds.width + 16, size + 16);
+      context.strokeRect(-boxWidth / 2 - 8, -boxHeight / 2 - 8, boxWidth + 16, boxHeight + 16);
       context.setLineDash([]);
     }
     context.restore();
@@ -115,7 +130,7 @@ function newLayer(kind: EditorLayer["kind"], value: string): EditorLayer {
     value,
     x: 0.5,
     y: 0.5,
-    scale: kind === "text" ? 0.055 : 0.12,
+    scale: kind === "text" ? 0.055 : kind === "image" ? 0.28 : 0.12,
     rotation: 0,
     color: kind === "text" ? "#ffffff" : "#ffffff",
   };
@@ -124,6 +139,7 @@ function newLayer(kind: EditorLayer["kind"], value: string): EditorLayer {
 export function EditorCanvas({ item }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const imageLayersRef = useRef(new Map<string, HTMLImageElement>());
   const dragRef = useRef<{ id: string; offset: Point; start: EditorSnapshot } | null>(null);
   const eraseBaseRef = useRef<Stroke[] | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -137,6 +153,9 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [textValue, setTextValue] = useState("");
   const [customEmoji, setCustomEmoji] = useState("");
+  const [uploadingLayer, setUploadingLayer] = useState(false);
+  const [layerError, setLayerError] = useState<string | null>(null);
+  const [imageVersion, setImageVersion] = useState(0);
   const [rotation, setRotation] = useState(0);
   const [brightness, setBrightness] = useState(100);
   const [cropSquare, setCropSquare] = useState(false);
@@ -153,6 +172,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       setPast([]);
       setFuture([]);
       setSelectedLayerId(null);
+      imageLayersRef.current.clear();
       setRotation(0);
       setBrightness(100);
       setCropSquare(false);
@@ -164,9 +184,9 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
 
   useEffect(() => {
     if (imageRef.current && canvasRef.current) {
-      drawScene(canvasRef.current, imageRef.current, zoom, present, layers, activeStroke, selectedLayerId, rotation, brightness, cropSquare);
+      drawScene(canvasRef.current, imageRef.current, zoom, present, layers, activeStroke, selectedLayerId, imageLayersRef.current, rotation, brightness, cropSquare);
     }
-  }, [zoom, present, layers, activeStroke, selectedLayerId, rotation, brightness, cropSquare]);
+  }, [zoom, present, layers, activeStroke, selectedLayerId, rotation, brightness, cropSquare, imageVersion]);
 
   function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current;
@@ -273,6 +293,29 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     setMode("select");
   }
 
+  async function addImageFromFile(file: File) {
+    setUploadingLayer(true);
+    setLayerError(null);
+    try {
+      const asset = await uploadLayer(item.round_id, file);
+      const layer = newLayer("image", "");
+      layer.assetUrl = getAssetUrl(asset.url);
+      const layerImage = new Image();
+      layerImage.onload = () => {
+        imageLayersRef.current.set(layer.id, layerImage);
+        setImageVersion((version) => version + 1);
+      };
+      layerImage.src = layer.assetUrl;
+      commitLayers([...layers, layer]);
+      setSelectedLayerId(layer.id);
+      setMode("select");
+    } catch (reason) {
+      setLayerError(reason instanceof Error ? reason.message : "사진 레이어를 추가하지 못했어요.");
+    } finally {
+      setUploadingLayer(false);
+    }
+  }
+
   function updateSelected(changes: Partial<EditorLayer>) {
     if (!selectedLayerId) return;
     commitLayers(layers.map((layer) => layer.id === selectedLayerId ? { ...layer, ...changes } : layer));
@@ -325,7 +368,12 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
         <button className="tool-button" disabled={!customEmoji.trim() || Array.from(customEmoji.trim()).length > 12} onClick={addCustomEmoji} type="button">이모지 추가</button>
         <input aria-label="텍스트 레이어" maxLength={40} onChange={(event) => setTextValue(event.target.value)} placeholder="텍스트" value={textValue} />
         <button className="tool-button" disabled={!textValue.trim()} onClick={addText} type="button">텍스트 추가</button>
+        <label className="file-layer-button">
+          {uploadingLayer ? "업로드 중…" : "사진 삽입"}
+          <input accept="image/jpeg,image/png,image/webp" disabled={uploadingLayer} onChange={(event) => { const file = event.target.files?.[0]; if (file) void addImageFromFile(file); event.target.value = ""; }} type="file" />
+        </label>
       </div>
+      {layerError && <p className="inline-message auth-error">{layerError}</p>}
       {selectedLayer && (
         <div className="layer-controls">
           <label>크기 <input max="0.3" min="0.03" onChange={(event) => updateSelected({ scale: Number(event.target.value) })} step="0.005" type="range" value={selectedLayer.scale} /></label>

@@ -76,7 +76,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     credentials: "include",
     headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !(typeof FormData !== "undefined" && init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
   });
@@ -151,4 +151,13 @@ export function getInbox(connectionId: string): Promise<InboxItem[]> {
 
 export function getAssetUrl(path: string): string {
   return `${apiBaseUrl}${path}`;
+}
+
+export function uploadLayer(roundId: string, file: File): Promise<InboxItem["input"]> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<InboxItem["input"]>(`/rounds/${roundId}/layers`, {
+    method: "POST",
+    body: form,
+  });
 }

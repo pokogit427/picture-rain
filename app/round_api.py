@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -108,6 +108,7 @@ def _store_asset(
     connection_id: str,
     round_id: str,
     owner_id: str,
+    kind: str = "INPUT",
 ) -> Asset:
     asset_id = uuid4().hex
     destination = asset_path(asset_id, normalized.content_type)
@@ -118,7 +119,7 @@ def _store_asset(
         connection_id=connection_id,
         round_id=round_id,
         owner_id=owner_id,
-        kind="INPUT",
+        kind=kind,
         content_type=normalized.content_type,
         size=len(normalized.content),
         width=normalized.width,
@@ -326,6 +327,46 @@ async def upload_partner_round_input(
     return _round_response(round_item, _load_inputs(db, round_id), user.id)
 
 
+@router.post("/rounds/{round_id}/layers", response_model=InputAssetResponse)
+async def upload_layer_asset(
+    file: UploadFile = File(...),
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InputAssetResponse:
+    round_item = _load_member_round(db, round_id, user.id)
+    _expire_if_needed(round_item, _now())
+    if round_item.status != "OPEN":
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer editable.")
+    layer_count = db.scalar(
+        select(func.count()).select_from(Asset).where(
+            Asset.round_id == round_id,
+            Asset.owner_id == user.id,
+            Asset.kind == "INSERT",
+            Asset.state == "ACTIVE",
+        )
+    ) or 0
+    if layer_count >= 10:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You can insert at most 10 photos per round.")
+    normalized = await _read_normalized_upload(file)
+    asset = _store_asset(
+        db,
+        normalized=normalized,
+        connection_id=round_item.connection_id,
+        round_id=round_item.id,
+        owner_id=user.id,
+        kind="INSERT",
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        asset_path(asset.id, asset.content_type).unlink(missing_ok=True)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Layer photo could not be saved.") from None
+    return _asset_response(asset)
+
+
 @router.get("/connections/{connection_id}/inbox", response_model=list[InboxItem])
 def list_inbox(
     connection_id: str = Path(min_length=32, max_length=32),
@@ -380,6 +421,8 @@ def download_asset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     round_item = db.get(Round, asset.round_id)
     if round_item is None or find_member_connection(db, asset.connection_id, user.id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+    if asset.kind == "INSERT" and asset.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     path = asset.storage_path
     if not path or not FilePath(path).is_file():

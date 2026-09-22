@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -67,6 +69,16 @@ class InputAssetResponse(BaseModel):
     height: int
     created_at: datetime
     url: str
+
+
+class DraftResponse(BaseModel):
+    id: str
+    round_id: str
+    version: int
+    document: dict[str, Any]
+    preview: InputAssetResponse | None
+    updated_at: datetime
+    expires_at: datetime
 
 
 class InboxItem(BaseModel):

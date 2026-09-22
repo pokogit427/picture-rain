@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -217,6 +217,33 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Draft(Base):
+    __tablename__ = "drafts"
+    __table_args__ = (
+        UniqueConstraint("round_id", "editor_id", name="uq_drafts_round_editor"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    round_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("rounds.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    editor_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    preview_asset_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    document_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ACTIVE")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class Photo(Base):

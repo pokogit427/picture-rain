@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getHealth, getMe, getPhotos } from "./api";
+import { getHealth, getMe, getPhotos, saveDraft } from "./api";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -73,5 +73,25 @@ describe("API client", () => {
       status: 401,
       message: "Authentication required.",
     });
+  });
+
+  it("sends drafts as multipart data without overriding the browser boundary", async () => {
+    const draft = {
+      id: "draft-1",
+      round_id: "round-1",
+      version: 1,
+      document: { strokes: [], layers: [] },
+      preview: null,
+      updated_at: "now",
+      expires_at: "later",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(draft), { status: 200 }),
+    );
+
+    await expect(saveDraft("round-1", JSON.stringify(draft.document), new Blob(["png"], { type: "image/png" }))).resolves.toEqual(draft);
+    const request = fetchMock.mock.calls[0]?.[1];
+    expect(request?.headers).not.toEqual(expect.objectContaining({ "Content-Type": "application/json" }));
+    expect(request?.body).toBeInstanceOf(FormData);
   });
 });

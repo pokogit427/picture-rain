@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { getAssetUrl, uploadLayer, type InboxItem } from "../api";
+import { cancelDraft, getAssetUrl, getDraft, saveDraft, uploadLayer, type InboxItem } from "../api";
 
-type Point = { x: number; y: number };
-type Stroke = { points: Point[]; color: string; width: number };
+export type Point = { x: number; y: number };
+export type Stroke = { points: Point[]; color: string; width: number };
 type ToolMode = "select" | "brush" | "eraser";
-type EditorLayer = {
+export type EditorLayer = {
   id: string;
   kind: "sticker" | "text" | "image";
   value: string;
@@ -14,8 +14,16 @@ type EditorLayer = {
   rotation: number;
   color: string;
   assetUrl?: string;
+  assetId?: string;
 };
 type EditorSnapshot = { strokes: Stroke[]; layers: EditorLayer[] };
+export type EditorDocument = {
+  strokes: Stroke[];
+  layers: EditorLayer[];
+  rotation: number;
+  brightness: number;
+  cropSquare: boolean;
+};
 
 interface EditorCanvasProps {
   item: InboxItem;
@@ -159,13 +167,41 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
   const [rotation, setRotation] = useState(0);
   const [brightness, setBrightness] = useState(100);
   const [cropSquare, setCropSquare] = useState(false);
+  const [draftState, setDraftState] = useState<"loading" | "idle" | "dirty" | "saving" | "saved" | "error">("loading");
+  const [draftVersion, setDraftVersion] = useState(1);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const hydratingDraftRef = useRef(true);
+  const suppressDirtyRef = useRef(false);
 
   const currentSnapshot = (): EditorSnapshot => ({ strokes: present, layers });
 
+  function loadImageLayers(nextLayers: EditorLayer[]) {
+    imageLayersRef.current.clear();
+    for (const layer of nextLayers.filter((candidate) => candidate.kind === "image")) {
+      const source = layer.assetUrl ?? (layer.assetId ? getAssetUrl(`/assets/${layer.assetId}/content`) : null);
+      if (!source) continue;
+      layer.assetUrl = source;
+      const layerImage = new Image();
+      layerImage.onload = () => {
+        imageLayersRef.current.set(layer.id, layerImage);
+        setImageVersion((version) => version + 1);
+      };
+      layerImage.src = source;
+    }
+  }
+
   useEffect(() => {
+    let active = true;
+    hydratingDraftRef.current = true;
+    setDraftError(null);
+    const draftPromise = getDraft(item.round_id).catch((reason: unknown) => {
+      if (active) setDraftError(reason instanceof Error ? reason.message : "초안을 불러오지 못했어요.");
+      return null;
+    });
     const image = new Image();
     image.decoding = "async";
-    image.onload = () => {
+    image.onload = async () => {
+      if (!active) return;
       imageRef.current = image;
       setPresent([]);
       setLayers([]);
@@ -177,10 +213,47 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
       setBrightness(100);
       setCropSquare(false);
       setImageState("ready");
+      const draft = await draftPromise;
+      if (!active) return;
+      suppressDirtyRef.current = true;
+      if (draft) {
+        const document = draft.document as EditorDocument;
+        const nextLayers = Array.isArray(document.layers) ? document.layers : [];
+        setPresent(Array.isArray(document.strokes) ? document.strokes : []);
+        setLayers(nextLayers);
+        setRotation(typeof document.rotation === "number" ? document.rotation : 0);
+        setBrightness(typeof document.brightness === "number" ? document.brightness : 100);
+        setCropSquare(document.cropSquare === true);
+        setDraftVersion(draft.version);
+        loadImageLayers(nextLayers);
+        setDraftState("saved");
+      } else {
+        setDraftVersion(1);
+        setDraftState("idle");
+      }
+      hydratingDraftRef.current = false;
     };
-    image.onerror = () => setImageState("error");
+    image.onerror = () => {
+      if (!active) return;
+      hydratingDraftRef.current = false;
+      setImageState("error");
+      setDraftState("error");
+    };
     image.src = getAssetUrl(item.input.url);
+    return () => {
+      active = false;
+      image.onload = null;
+      image.onerror = null;
+    };
   }, [item]);
+
+  useEffect(() => {
+    if (suppressDirtyRef.current) {
+      suppressDirtyRef.current = false;
+      return;
+    }
+    if (imageState === "ready" && !hydratingDraftRef.current) setDraftState("dirty");
+  }, [present, layers, rotation, brightness, cropSquare, imageState]);
 
   useEffect(() => {
     if (imageRef.current && canvasRef.current) {
@@ -299,6 +372,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     try {
       const asset = await uploadLayer(item.round_id, file);
       const layer = newLayer("image", "");
+      layer.assetId = asset.id;
       layer.assetUrl = getAssetUrl(asset.url);
       const layerImage = new Image();
       layerImage.onload = () => {
@@ -345,6 +419,62 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
     setFuture(future.slice(1));
   }
 
+  function currentDocument(): EditorDocument {
+    return { strokes: present, layers, rotation, brightness, cropSquare };
+  }
+
+  function canvasBlob(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        resolve(null);
+        return;
+      }
+      canvas.toBlob(resolve, "image/png");
+    });
+  }
+
+  async function saveCurrentDraft() {
+    if (draftState === "saving" || imageState !== "ready") return;
+    setDraftState("saving");
+    setDraftError(null);
+    try {
+      const response = await saveDraft(
+        item.round_id,
+        JSON.stringify(currentDocument()),
+        await canvasBlob(),
+        draftVersion,
+      );
+      setDraftVersion(response.version);
+      setDraftState("saved");
+    } catch (reason) {
+      setDraftState("error");
+      setDraftError(reason instanceof Error ? reason.message : "초안을 저장하지 못했어요.");
+    }
+  }
+
+  async function removeDraft() {
+    if (draftState === "saving") return;
+    try {
+      await cancelDraft(item.round_id);
+      suppressDirtyRef.current = true;
+      setPresent([]);
+      setLayers([]);
+      setRotation(0);
+      setBrightness(100);
+      setCropSquare(false);
+      setSelectedLayerId(null);
+      imageLayersRef.current.clear();
+      setImageVersion((version) => version + 1);
+      setDraftVersion(1);
+      setDraftState("idle");
+      setDraftError(null);
+    } catch (reason) {
+      setDraftState("error");
+      setDraftError(reason instanceof Error ? reason.message : "초안을 취소하지 못했어요.");
+    }
+  }
+
   const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
 
   return (
@@ -374,6 +504,7 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
         </label>
       </div>
       {layerError && <p className="inline-message auth-error">{layerError}</p>}
+      {draftError && <p className="inline-message auth-error">{draftError}</p>}
       {selectedLayer && (
         <div className="layer-controls">
           <label>크기 <input max="0.3" min="0.03" onChange={(event) => updateSelected({ scale: Number(event.target.value) })} step="0.005" type="range" value={selectedLayer.scale} /></label>
@@ -393,6 +524,13 @@ export function EditorCanvas({ item }: EditorCanvasProps) {
         <canvas aria-label="편집 대상 사진" className={imageState === "ready" ? "editor-canvas visible" : "editor-canvas"} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={finishPointer} onPointerCancel={finishPointer} ref={canvasRef} />
       </div>
       <label className="zoom-control" htmlFor="editor-zoom"><span>확대/축소</span><input id="editor-zoom" max="2" min="0.75" onChange={(event) => setZoom(Number(event.target.value))} step="0.05" type="range" value={zoom} /><output>{Math.round(zoom * 100)}%</output></label>
+      <div className="draft-controls">
+        <button className="tool-button active" disabled={draftState === "saving" || draftState === "loading" || imageState !== "ready"} onClick={() => void saveCurrentDraft()} type="button">
+          {draftState === "saving" ? "초안 저장 중…" : "초안 저장"}
+        </button>
+        <button className="tool-button" disabled={draftState === "saving" || draftState === "loading"} onClick={() => void removeDraft()} type="button">초안 취소</button>
+        <span className="draft-status">{draftState === "saved" ? `저장됨 · v${draftVersion}` : draftState === "dirty" ? "저장되지 않은 변경" : draftState === "loading" ? "초안 확인 중…" : "임시 초안 없음"}</span>
+      </div>
       <p className="editor-note">레이어를 선택해 이동·크기·회전을 조정하고, 필요하면 삭제할 수 있습니다.</p>
     </section>
   );

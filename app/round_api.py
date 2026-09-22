@@ -1,8 +1,9 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path as FilePath
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -11,11 +12,12 @@ from sqlalchemy.orm import Session
 from app.asset_images import normalize_image
 from app.auth import get_current_user
 from app.db import get_db
-from app.models import Asset, Round, RoundInput, User
+from app.models import Asset, Draft, Round, RoundInput, User
 from app.pairing import find_member_connection
 from app.schemas import (
     InboxItem,
     InputAssetResponse,
+    DraftResponse,
     RoundCreateRequest,
     RoundDetail,
     RoundInputRequest,
@@ -25,6 +27,9 @@ from app.storage import MAX_UPLOAD_BYTES, asset_path
 
 router = APIRouter(tags=["rounds"])
 ROUND_TTL = timedelta(hours=24)
+MAX_DRAFT_DOCUMENT_BYTES = 200_000
+MAX_DRAFT_STROKES = 2_000
+MAX_DRAFT_LAYERS = 40
 
 
 def _now() -> datetime:
@@ -73,6 +78,44 @@ def _asset_response(asset: Asset) -> InputAssetResponse:
         created_at=asset.created_at,
         url=f"/assets/{asset.id}/content",
     )
+
+
+def _draft_response(db: Session, draft: Draft) -> DraftResponse:
+    preview = None
+    if draft.preview_asset_id:
+        asset = db.get(Asset, draft.preview_asset_id)
+        if asset is not None and asset.state == "ACTIVE":
+            preview = _asset_response(asset)
+    return DraftResponse(
+        id=draft.id,
+        round_id=draft.round_id,
+        version=draft.version,
+        document=json.loads(draft.document_json),
+        preview=preview,
+        updated_at=draft.updated_at,
+        expires_at=draft.expires_at,
+    )
+
+
+def _parse_draft_document(document_json: str) -> dict:
+    if len(document_json.encode("utf-8")) > MAX_DRAFT_DOCUMENT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Editor draft is too large.",
+        )
+    try:
+        document = json.loads(document_json)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Editor draft is invalid.") from None
+    if not isinstance(document, dict):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Editor draft is invalid.")
+    strokes = document.get("strokes", [])
+    layers = document.get("layers", [])
+    if not isinstance(strokes, list) or not isinstance(layers, list):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Editor draft is invalid.")
+    if len(strokes) > MAX_DRAFT_STROKES or len(layers) > MAX_DRAFT_LAYERS:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Editor draft has too many layers.")
+    return document
 
 
 def _partner_asset(db: Session, round_id: str, user_id: str) -> Asset:
@@ -367,6 +410,112 @@ async def upload_layer_asset(
     return _asset_response(asset)
 
 
+@router.get("/rounds/{round_id}/draft", response_model=DraftResponse)
+def get_draft(
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DraftResponse:
+    _load_member_round(db, round_id, user.id)
+    draft = db.scalar(
+        select(Draft).where(
+            Draft.round_id == round_id,
+            Draft.editor_id == user.id,
+            Draft.status == "ACTIVE",
+        )
+    )
+    if draft is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found.")
+    if draft.expires_at <= _now():
+        draft.status = "EXPIRED"
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found.")
+    return _draft_response(db, draft)
+
+
+@router.put("/rounds/{round_id}/draft", response_model=DraftResponse)
+async def save_draft(
+    document_json: str = Form(...),
+    version: int = Form(default=1, ge=1),
+    file: UploadFile | None = File(default=None),
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DraftResponse:
+    round_item = _load_member_round(db, round_id, user.id)
+    _expire_if_needed(round_item, _now())
+    if round_item.status != "OPEN":
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Round is no longer editable.")
+    document = _parse_draft_document(document_json)
+    draft = db.scalar(
+        select(Draft).where(Draft.round_id == round_id, Draft.editor_id == user.id)
+    )
+    old_asset = None
+    if draft is None:
+        draft = Draft(
+            round_id=round_id,
+            editor_id=user.id,
+            version=1,
+            document_json=json.dumps(document, ensure_ascii=False, separators=(",", ":")),
+            expires_at=_now() + ROUND_TTL,
+        )
+        db.add(draft)
+    else:
+        old_asset = db.get(Asset, draft.preview_asset_id) if draft.preview_asset_id else None
+        draft.version = max(draft.version + 1, version)
+        draft.document_json = json.dumps(document, ensure_ascii=False, separators=(",", ":"))
+        draft.status = "ACTIVE"
+        draft.expires_at = _now() + ROUND_TTL
+    new_asset = None
+    try:
+        if file is not None:
+            normalized = await _read_normalized_upload(file)
+            new_asset = _store_asset(
+                db,
+                normalized=normalized,
+                connection_id=round_item.connection_id,
+                round_id=round_id,
+                owner_id=user.id,
+                kind="DRAFT_PREVIEW",
+            )
+            draft.preview_asset_id = new_asset.id
+        draft.updated_at = _now()
+        db.commit()
+    except Exception:
+        db.rollback()
+        if new_asset is not None:
+            asset_path(new_asset.id, new_asset.content_type).unlink(missing_ok=True)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Draft could not be saved.") from None
+    if old_asset is not None and new_asset is not None:
+        old_asset.state = "DELETED"
+        db.commit()
+        asset_path(old_asset.id, old_asset.content_type).unlink(missing_ok=True)
+    return _draft_response(db, draft)
+
+
+@router.delete("/rounds/{round_id}/draft", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_draft(
+    round_id: str = Path(min_length=32, max_length=32),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    _load_member_round(db, round_id, user.id)
+    draft = db.scalar(
+        select(Draft).where(Draft.round_id == round_id, Draft.editor_id == user.id)
+    )
+    if draft is None:
+        return
+    preview = db.get(Asset, draft.preview_asset_id) if draft.preview_asset_id else None
+    preview_path = asset_path(preview.id, preview.content_type) if preview else None
+    if preview is not None:
+        preview.state = "DELETED"
+    db.delete(draft)
+    db.commit()
+    if preview_path is not None:
+        preview_path.unlink(missing_ok=True)
+
+
 @router.get("/connections/{connection_id}/inbox", response_model=list[InboxItem])
 def list_inbox(
     connection_id: str = Path(min_length=32, max_length=32),
@@ -422,7 +571,7 @@ def download_asset(
     round_item = db.get(Round, asset.round_id)
     if round_item is None or find_member_connection(db, asset.connection_id, user.id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
-    if asset.kind == "INSERT" and asset.owner_id != user.id:
+    if asset.kind in {"INSERT", "DRAFT_PREVIEW"} and asset.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
     path = asset.storage_path
     if not path or not FilePath(path).is_file():

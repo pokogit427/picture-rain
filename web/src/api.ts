@@ -51,6 +51,22 @@ export interface InboxItem {
   };
 }
 
+export interface DraftResponse {
+  id: string;
+  round_id: string;
+  version: number;
+  document: {
+    strokes: unknown[];
+    layers: unknown[];
+    rotation?: number;
+    brightness?: number;
+    cropSquare?: boolean;
+  };
+  preview: InboxItem["input"] | null;
+  updated_at: string;
+  expires_at: string;
+}
+
 export interface AuthCredentials {
   login_identifier: string;
   password: string;
@@ -160,4 +176,33 @@ export function uploadLayer(roundId: string, file: File): Promise<InboxItem["inp
     method: "POST",
     body: form,
   });
+}
+
+export async function getDraft(roundId: string): Promise<DraftResponse | null> {
+  try {
+    return await request<DraftResponse>(`/rounds/${roundId}/draft`);
+  } catch (reason) {
+    if (reason instanceof ApiError && reason.status === 404) return null;
+    throw reason;
+  }
+}
+
+export function saveDraft(
+  roundId: string,
+  document: string,
+  preview: Blob | null,
+  version = 1,
+): Promise<DraftResponse> {
+  const form = new FormData();
+  form.append("document_json", document);
+  form.append("version", String(version));
+  if (preview) form.append("file", preview, "draft.png");
+  return request<DraftResponse>(`/rounds/${roundId}/draft`, {
+    method: "PUT",
+    body: form,
+  });
+}
+
+export function cancelDraft(roundId: string): Promise<void> {
+  return request<void>(`/rounds/${roundId}/draft`, { method: "DELETE" });
 }

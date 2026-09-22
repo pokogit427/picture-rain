@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, init_db
-from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundSubmission
+from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundInput, RoundSubmission
 from app.storage import asset_path, mosaic_path
 
 
@@ -43,6 +43,7 @@ def cleanup_expired_data(db: Session, now: datetime | None = None) -> dict[str, 
         "deleted_assets": 0,
         "purged_history": 0,
         "deleted_unreferenced_results": 0,
+        "deleted_connections": 0,
     }
 
     rounds = db.scalars(select(Round)).all()
@@ -140,6 +141,31 @@ def cleanup_expired_data(db: Session, now: datetime | None = None) -> dict[str, 
             db.execute(delete(Asset).where(Asset.id == asset.id))
         db.execute(delete(HistoryEntry).where(HistoryEntry.submission_id == submission.id))
         result["deleted_unreferenced_results"] += 1
+
+    disconnected = db.scalars(
+        select(Connection).where(Connection.status == "DISCONNECTED")
+    ).all()
+    for connection in disconnected:
+        connection_id = connection.id
+        rounds = db.scalars(
+            select(Round).where(Round.connection_id == connection_id)
+        ).all()
+        round_ids = [round_item.id for round_item in rounds]
+        assets = db.scalars(
+            select(Asset).where(Asset.connection_id == connection_id)
+        ).all()
+        for asset in assets:
+            if _queue_asset_delete(asset, paths, deleted_asset_ids):
+                result["deleted_assets"] += 1
+        db.execute(delete(HistoryEntry).where(HistoryEntry.connection_id == connection_id))
+        if round_ids:
+            db.execute(delete(Draft).where(Draft.round_id.in_(round_ids)))
+            db.execute(delete(RoundInput).where(RoundInput.round_id.in_(round_ids)))
+            db.execute(delete(RoundSubmission).where(RoundSubmission.round_id.in_(round_ids)))
+        db.execute(delete(Asset).where(Asset.connection_id == connection_id))
+        db.execute(delete(Round).where(Round.connection_id == connection_id))
+        db.execute(delete(Connection).where(Connection.id == connection_id))
+        result["deleted_connections"] += 1
 
     db.flush()
     db.commit()

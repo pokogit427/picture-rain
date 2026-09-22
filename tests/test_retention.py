@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import app.retention as retention
 from app.db import Base
-from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundSubmission, User
+from app.models import Asset, Connection, Draft, HistoryEntry, Round, RoundInput, RoundSubmission, User
 
 
 class RetentionTest(unittest.TestCase):
@@ -143,6 +143,41 @@ class RetentionTest(unittest.TestCase):
             retry = retention.cleanup_expired_data(db, now)
             self.assertEqual(retry["purged_history"], 0)
             self.assertEqual(retry["deleted_unreferenced_results"], 0)
+
+    def test_disconnected_connection_is_fully_removed_without_touching_other_data(self) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as db:
+            first = User(id="1" * 32, login_identifier="disconnect-first", status="ACTIVE")
+            second = User(id="2" * 32, login_identifier="disconnect-second", status="ACTIVE")
+            third = User(id="3" * 32, login_identifier="other-third", status="ACTIVE")
+            fourth = User(id="4" * 32, login_identifier="other-fourth", status="ACTIVE")
+            disconnected = Connection(id="5" * 32, user_low_id=first.id, user_high_id=second.id, status="DISCONNECTED")
+            preserved = Connection(id="6" * 32, user_low_id=third.id, user_high_id=fourth.id, status="ACTIVE")
+            round_item = Round(
+                id="7" * 32, connection_id=disconnected.id, created_by_id=first.id, status="REVEALED",
+                expires_at=now + timedelta(days=1), revealed_at=now,
+            )
+            asset = Asset(
+                id="8" * 32, connection_id=disconnected.id, round_id=round_item.id, owner_id=first.id,
+                kind="INPUT", content_type="image/png", size=1, width=1, height=1, storage_path="input.png",
+            )
+            round_input = RoundInput(id="9" * 32, round_id=round_item.id, sender_id=first.id, asset_id=asset.id)
+            db.add_all([first, second, third, fourth, disconnected, preserved, round_item, asset, round_input])
+            db.commit()
+            asset_path = retention.asset_path(asset.id, asset.content_type)
+            asset_path.write_bytes(b"input")
+
+            result = retention.cleanup_expired_data(db, now)
+
+            self.assertEqual(result["deleted_connections"], 1)
+            self.assertIsNone(db.get(Connection, disconnected.id))
+            self.assertIsNotNone(db.get(Connection, preserved.id))
+            self.assertIsNone(db.get(Round, round_item.id))
+            self.assertIsNone(db.get(Asset, asset.id))
+            self.assertFalse(asset_path.exists())
+
+            retry = retention.cleanup_expired_data(db, now)
+            self.assertEqual(retry["deleted_connections"], 0)
 
 
 if __name__ == "__main__":
